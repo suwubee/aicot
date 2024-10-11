@@ -17,6 +17,7 @@
    - 为 `terms.node2` 中的每个项编写详细描述。
    - 对于 `node2ComplexItems` 中的项，提供更详细的说明。
    - 确保 `fixedDescriptions` 的键与 `terms` 中的键一致。
+   - 不要生成重复的terms的值，例如node5和detail不要都是`详细内容`
 
 3. **系统角色提示词 (`systemRolePrompt`)**:
    - 明确AI的角色和职责。
