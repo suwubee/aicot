@@ -1,5 +1,7 @@
 # aicot
-实际演示地址 https://aicot.aisws.com/
+实际演示地址 <br>
+https://suwubee.github.io/aicot/<br>
+https://aicot.aisws.com/<br>
 按照CoT原理设计的AI工作流，可配置、可中断编辑
 
 # 初次使用
