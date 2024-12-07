@@ -29,15 +29,10 @@ jobs:
         with:
           enablement: true
       
-      - name: Create artifact directory
-        run: |
-          mkdir -p ./artifact
-          cp index.html ./artifact/
-      
       - name: Upload artifact
         uses: actions/upload-pages-artifact@v3
         with:
-          path: './artifact'  # 使用新创建的目录
+          path: '.'
       
       - name: Deploy to GitHub Pages
         id: deployment
