@@ -1,6 +1,8 @@
 # AI 思维流程设计工具
 
 这是一个基于 AI 的思维流程设计工具,可以帮助用户生成和管理结构化的思维流程。
+效果演示
+![image](https://github.com/user-attachments/assets/ec2b997f-14f3-4108-9a3e-58a05e04afa5)
 
 ## 功能特点
 
@@ -14,11 +16,12 @@
 
 ## 快速开始
 
+
 ### 直接部署
 1. 将build目录下的文件直接部署到支持html的web服务器，当然也可以放到本地使用浏览器打开
-2. example目录中的import_example.json文件，点击导入按钮，导入后，点击开始按钮，即可开始生成思维流程结构
+2. example目录中的[import_example.json](https://github.com/suwubee/aicot/blob/main/example/import_example.json)文件，点击导入按钮，导入后，点击开始按钮，即可开始生成思维流程结构
 3. 配置API URL和API Key，开始生成你需要的思维流程结构
-4. 以suggest.md文件为AI提示词，生成你需要的新的思维链模板，并导入到系统中
+4. 如果需要生成新的思维链模版，以[suggest.md](https://github.com/suwubee/aicot/blob/main/example/suggest.md?plain=1)文件为AI提示词，生成你需要的新的思维链模板，并导入到系统中
 
 ### 安装
 
