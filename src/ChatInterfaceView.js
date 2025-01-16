@@ -55,6 +55,8 @@ export default function ChatInterfaceView({
   handleConfigAdd,
   handleConfigEdit,
   handleConfigDelete,
+  showSidebar,
+  setShowSidebar,
 }) {
   useEffect(() => {}, [chatHistories]);
 
@@ -490,57 +492,81 @@ export default function ChatInterfaceView({
   };
 
   return (
-    <div className="flex h-screen bg-gray-100">
-      {/* 左侧聊天记录和设置部分 */}
-      <div className="w-full md:w-64 bg-gray-200 p-4 border-r flex flex-col overflow-y-auto">
-        {/* 聊天记录列表和新建聊天按钮 */}
-        <div className="flex-shrink-0">
-          <h2 className="text-lg font-bold mb-4">聊天记录</h2>
-          <div className="space-y-2">
-            {chatHistories.map((history, index) => (
-              <div
-                key={index}
-                onClick={() => handleChatClick(index)}
-                className={`p-2 rounded shadow cursor-pointer flex justify-between items-center ${
-                  index === currentChatIndex ? 'bg-blue-100' : 'bg-white'
-                }`}
-              >
-                <span>{history.title}</span>
-                <button
-                  onClick={(e) => {
-                    e.stopPropagation();
-                    deleteChatHistory(index);
-                  }}
-                  className="text-red-500 hover:text-red-700 focus:outline-none"
-                >
-                  删除
-                </button>
-              </div>
-            ))}
-          </div>
+    <div className="flex h-screen overflow-hidden">
+      {/* 左侧边栏 - 移动端时为全屏覆盖层 */}
+      <div className={`${
+        showSidebar 
+          ? 'fixed inset-0 z-40 w-full md:w-64 md:relative' 
+          : 'hidden md:block w-64'
+      } bg-gray-200 border-r h-screen flex flex-col`}>
+        {/* 添加移动端关闭按钮 */}
+        <div className="md:hidden p-4 flex justify-end">
           <button
-            onClick={() => {
-              if (messages.length > 0) {
-                saveChatHistory(messages);
-              }
-              startNewChat();
-            }}
-            className="mt-4 w-full px-4 py-2 bg-green-500 text-white rounded hover:bg-green-600 focus:outline-none focus:ring-2 focus:ring-green-500"
+            onClick={() => setShowSidebar(false)}
+            className="p-2 rounded-full hover:bg-gray-300"
           >
-            新建聊天
+            <span className="sr-only">关闭菜单</span>
+            <svg className="w-6 h-6" fill="none" stroke="currentColor" viewBox="0 0 24 24">
+              <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M6 18L18 6M6 6l12 12" />
+            </svg>
           </button>
         </div>
-        {/* 设置部分 */}
-        <div className="mt-4 flex-grow overflow-y-auto">
-          <button
-            onClick={() => setShowSettings(!showSettings)}
-            className="w-full px-4 py-2 bg-gray-300 rounded hover:bg-gray-400 focus:outline-none focus:ring-2 focus:ring-gray-500"
-          >
-            <Settings className="w-4 h-4 mr-2 inline" />
-            设置
-          </button>
+
+        {/* 上部分：聊天记录列表 */}
+        <div className="h-1/2 flex flex-col overflow-hidden border-b">
+          <h2 className="text-lg font-bold p-4">聊天记录</h2>
+          <div className="flex-1 overflow-y-auto px-4 pb-4">
+            <div className="space-y-2">
+              {chatHistories.map((history, index) => (
+                <div
+                  key={index}
+                  onClick={() => handleChatClick(index)}
+                  className={`p-2 rounded shadow cursor-pointer flex justify-between items-center ${
+                    index === currentChatIndex ? 'bg-blue-100' : 'bg-white'
+                  }`}
+                >
+                  <span>{history.title}</span>
+                  <button
+                    onClick={(e) => {
+                      e.stopPropagation();
+                      deleteChatHistory(index);
+                    }}
+                    className="text-red-500 hover:text-red-700 focus:outline-none"
+                  >
+                    删除
+                  </button>
+                </div>
+              ))}
+            </div>
+          </div>
+          <div className="p-4 border-t">
+            <button
+              onClick={() => {
+                if (messages.length > 0) {
+                  saveChatHistory(messages);
+                }
+                startNewChat();
+              }}
+              className="w-full px-4 py-2 bg-green-500 text-white rounded hover:bg-green-600 focus:outline-none"
+            >
+              新建聊天
+            </button>
+          </div>
+        </div>
+
+        {/* 下部分：设置区域 */}
+        <div className="h-1/2 flex flex-col overflow-hidden">
+          <div className="p-4 border-b">
+            <button
+              onClick={() => setShowSettings(!showSettings)}
+              className="w-full px-4 py-2 bg-gray-300 rounded hover:bg-gray-400 focus:outline-none"
+            >
+              <Settings className="w-4 h-4 mr-2 inline" />
+              设置
+            </button>
+          </div>
           {showSettings && (
-            <div className="space-y-4 mt-4">
+            <div className="flex-1 overflow-y-auto p-4">
               {/* 配置管理部分 */}
               <div className="space-y-2">
                 <h3 className="text-lg font-medium">配置管理</h3>
@@ -549,7 +575,7 @@ export default function ChatInterfaceView({
                   value={selectedConfig ? selectedConfig.id : ''}
                   onChange={(e) => handleConfigChange(e.target.value)}
                   className="w-full p-2 border rounded focus:outline-none focus:ring-2 focus:ring-blue-500"
-                  disabled={messages.length > 0 && messages[0].selectedConfig} // 如果有消息，则禁用下拉框
+                  disabled={messages.length > 0 && messages[0].selectedConfig}
                 >
                   {configurations.map((config) => (
                     <option key={config.id} value={config.id}>
@@ -658,34 +684,28 @@ export default function ChatInterfaceView({
         </div>
       </div>
 
-      {/* 右侧聊天内容部分 */}
-      <div className="flex-1 flex flex-col overflow-hidden">
-        {/* 在右侧顶部，只在新建消息时显示配置选择下拉框 */}
-        {messages.length === 0 && (
-          <div className="p-4 bg-white border-b flex items-center justify-between">
-            <span className="text-sm text-gray-700">
-              当前配置：{selectedConfig ? selectedConfig.name : '未选择配置'}
-            </span>
-            <div className="flex items-center space-x-2">
-              <select
-                id="selectedConfig"
-                value={selectedConfig ? selectedConfig.id : ''}
-                onChange={(e) => handleConfigChange(e.target.value)}
-                className="p-2 border rounded focus:outline-none focus:ring-2 focus:ring-blue-500"
-                // 在新建消息时，下拉框可用
-              >
-                {configurations.map((config) => (
-                  <option key={config.id} value={config.id}>
-                    {config.name}
-                  </option>
-                ))}
-              </select>
-            </div>
-          </div>
-        )}
+      {/* 右侧聊天内容区域 */}
+      <div className="flex-1 flex flex-col h-screen">
+        {/* 移动端顶部导航栏 */}
+        <div className="md:hidden flex items-center p-4 border-b">
+          <button
+            onClick={() => setShowSidebar(true)}
+            className="p-2 rounded-full hover:bg-gray-100"
+          >
+            <span className="sr-only">打开菜单</span>
+            <svg className="w-6 h-6" fill="none" stroke="currentColor" viewBox="0 0 24 24">
+              <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M4 6h16M4 12h16M4 18h16" />
+            </svg>
+          </button>
+        </div>
 
-        <div id="chat-content" className="flex-1 overflow-y-auto" ref={scrollAreaRef}>
-          <div className="h-full p-4">
+        {/* 聊天内容区域 */}
+        <div 
+          className="flex-1 overflow-y-auto scroll-smooth" 
+          ref={scrollAreaRef}
+          style={{ scrollBehavior: 'smooth' }}
+        >
+          <div className="p-4">
             {sortedMessages && sortedMessages.length > 0 ? (
               sortedMessages.map((message) => {
                 if (!message) return null;
@@ -880,6 +900,8 @@ export default function ChatInterfaceView({
             )}
           </div>
         </div>
+        
+        {/* 底部输入框 */}
         <div className="p-4 bg-white border-t">
           {!hasRenderedMainStructure && (
             <form onSubmit={handleFormSubmit} className="space-y-2">
@@ -920,6 +942,14 @@ export default function ChatInterfaceView({
           )}
         </div>
       </div>
+
+      {/* 移动端侧边栏遮罩层 */}
+      {showSidebar && (
+        <div 
+          className="md:hidden fixed inset-0 bg-black bg-opacity-50 z-30"
+          onClick={() => setShowSidebar(false)}
+        />
+      )}
     </div>
   );
 }

@@ -116,6 +116,8 @@ export default function ChatInterface() {
     }
   });
 
+  const [showSidebar, setShowSidebar] = useState(false);
+
   function renderDetailContent(detailData, nodeIndexes, nodeTitle, subNodeTitle, messageConfig) {
     if (!detailData) return '';
   
@@ -629,8 +631,16 @@ export default function ChatInterface() {
         return updatedHistories;
       });
 
-      // 等待状态更新完成
-      await new Promise((resolve) => setTimeout(resolve, 0));
+      // 等待 DOM 更新
+      await new Promise((resolve) => setTimeout(resolve, 100));
+
+      // 找到最新生成的消息元素并滚动到它的位置
+      const messageElements = document.querySelectorAll('.mb-4.p-4.rounded-lg.shadow-md');
+      const lastMessage = messageElements[messageElements.length - 1];
+      if (lastMessage) {
+        lastMessage.scrollIntoView({ behavior: 'smooth', block: 'start' });
+      }
+
     } catch (error) {
       console.error('生成细节内容时发生错误:', error);
       setError(`生成细节内容时发生错误: ${error.message}`);
@@ -983,6 +993,8 @@ export default function ChatInterface() {
         handleImportConfigs={handleImportConfigs}
         configFileInputRef={configFileInputRef}
         handleExportMarkdown={handleExportMarkdown}
+        showSidebar={showSidebar}
+        setShowSidebar={setShowSidebar}
       />
     </div>
   );

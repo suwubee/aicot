@@ -120,8 +120,22 @@ function buildConfigFunctions(config) {
 
   // 使用配置项中的 terms 和 fixedDescriptions 构建 prompts 和 functionCalls
   const prompts = {
-    generateMainStructurePrompt: (userContent) =>
-      `请为"${userContent}"设计一套完整的${terms.node1}方案。`,
+    generateMainStructurePrompt: (userContent) => `
+# 设计需求
+为"${userContent}"设计一套完整的「${terms.node1}」方案。
+
+# 设计要求
+1. 结构完整性
+   - 每个「${terms.node2}」必须符合MECE原则（相互独立、完全穷尽）
+   - 确保各层级之间存在明确的逻辑关系和递进关系
+   - ${terms.node2}的顺序应遵循时间顺序或逻辑递进
+
+2. 内容要求
+   - 对于复杂的「${terms.node2}」项（${terms.node2ComplexItems.join('、')}），提供3-5个具体的「${terms.node3}」
+   - 每个「${terms.node3}」下设计2-4个关键的「${terms.node4}」
+   - 确保内容的可操作性和实用性
+
+请严格按照JSON格式输出。`,
 
     adjustMainStructurePrompt: (currentDesign, adjustments) =>
       `根据之前的${terms.node1}内容:
@@ -142,18 +156,33 @@ ${adjustments}
 ${terms.node1}背景:
 ${JSON.stringify(currentDesign, null, 2).replace(/\s+/g, ' ').replace(/\n/g, ' ')} 
 
+# 已有内容参考
 ${existingSectionsPrompt}
 
-根据${terms.node1}内容和${terms.outline},为${terms.node1}中的第 ${nodeIndexes.node3} 个${terms.node3} "${nodeTitle}" 的第 ${nodeIndexes.node4} 个${terms.node4} "${subNodeTitle}" 生成详细的${terms.detail}。
+根据${terms.mainStructure}内容和${terms.outline},为${terms.mainStructure}中的第 ${nodeIndexes.node3} 个${terms.node3} "${nodeTitle}" 的第 ${nodeIndexes.node4} 个${terms.node4} "${subNodeTitle}" 生成详细的${terms.detail}。
 
-请为 "${terms.detail}" 字段生成详细的内容,使用 Markdown 格式。
+# 生成要求
+1. 内容相关性
+   - 确保内容与当前「${terms.node4}」主题高度相关
+   - 与其他「${terms.node4}」内容避免重复
+   - 注意与整体「${terms.node1}」的连贯性
 
-**重要提示:**
-- 所有字符串内容需要进行适当的转义,特别是特殊字符（如引号、反斜杠、换行符等）和 Markdown 标记。
-- 不要添加额外的说明文字或注释。
-- 请参考当前${terms.node3}中已有的${terms.node4}内容,避免生成重复的内容。
+2. 内容结构
+   - 使用二级标题组织主要内容
+   - 每个关键点需要2-3个具体的执行步骤
+   - 适当使用要点符号提高可读性
 
-`,
+3. 实用性要求
+   - 提供可操作的具体建议
+   - 包含可衡量的成果指标
+   - 注重实践可行性
+
+4. 格式规范
+   - 使用Markdown格式
+   - 所有字符串内容需要适当转义
+   - 避免额外的说明文字或注释
+
+请生成符合以上要求的详细内容，确保内容既独立完整，又与整体流程紧密关联。`,
 
     adjustDetailPrompt: (
       currentContent,
@@ -167,14 +196,30 @@ ${existingSectionsPrompt}
 当前${terms.mainStructure}背景和${terms.outline}:
 ${JSON.stringify(currentDesign, null, 2).replace(/\s+/g, ' ').replace(/\n/g, ' ')}
 
+# 已有内容参考
 ${existingSectionsPrompt}
 
 根据${terms.mainStructure}内容和${terms.outline},为${terms.mainStructure}中的第 ${nodeIndexes.node3 || ''} 个${terms.node3} "${nodeTitle || ''}" 的第 ${nodeIndexes.node4 || ''} 个${terms.node4} "${subNodeTitle || ''}" 生成详细的${terms.detail}。
 
+# 当前内容
+${currentContent}
 
-调整意见:
+# 调整意见
 ${adjustments || ''}
-`,
+
+# 调整要求
+1. 内容修改
+   - 保留原内容中有价值的部分
+   - 根据调整意见进行针对性修改
+   - 确保与整体「${terms.node1}」保持一致性
+   - 维持与其他节点的逻辑关联
+
+2. 质量保证
+   - 提升内容的可操作性和实用性
+   - 确保修改后的专业性和准确性
+   - 保持结构的清晰和连贯
+   
+请基于以上要求进行内容调整，确保最终输出符合Markdown格式规范。`
   };
 
   // 根据 terms 构建 functionCalls
