@@ -30,6 +30,7 @@ export default function ChatSidebar({
   fileInputRef,
   configFileInputRef,
   handleImportConfigs,
+  handleImport,
 }) {
   return (
     <div className="flex flex-col h-full">
@@ -104,6 +105,7 @@ export default function ChatSidebar({
               handleConfigDelete={handleConfigDelete}
               handleExport={handleExport}
               handleImportClick={handleImportClick}
+              handleImport={handleImport}
               fileInputRef={fileInputRef}
             />
           </div>

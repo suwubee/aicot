@@ -16,6 +16,7 @@ const SettingsPanel = ({
   handleConfigDelete,
   handleExport,
   handleImportClick,
+  handleImport,
   fileInputRef,
 }) => {
   return (
@@ -122,13 +123,14 @@ const SettingsPanel = ({
           onClick={handleImportClick}
           className="w-full px-4 py-2 bg-green-500 text-white rounded hover:bg-green-600 focus:outline-none"
         >
-          导入聊天记和配置
+          导入聊天记录和配置
         </button>
         <input
           type="file"
-          accept="application/json"
           ref={fileInputRef}
           style={{ display: 'none' }}
+          onChange={handleImport}
+          accept=".json"
         />
       </div>
     </div>

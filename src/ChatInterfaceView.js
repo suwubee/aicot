@@ -47,6 +47,7 @@ export default function ChatInterfaceView({
   handleExport,
   handleImportClick,
   handleImport,
+  handleImportConfigs,
   fileInputRef,
   selectedConfig,
   configurations,
@@ -141,9 +142,10 @@ export default function ChatInterfaceView({
           handleConfigDelete={handleConfigDelete}
           handleExport={handleExport}
           handleImportClick={handleImportClick}
+          handleImport={handleImport}
           fileInputRef={fileInputRef}
           configFileInputRef={configFileInputRef}
-          handleImportConfigs={handleImport}
+          handleImportConfigs={handleImportConfigs}
         />
       </div>
 

@@ -2,7 +2,7 @@ import React from 'react';
 import ReactMarkdown from 'react-markdown';
 import rehypeRaw from 'rehype-raw';
 
-const MessageList = ({
+export default function MessageList({
   messages,
   handleDeleteMessage,
   handleCopy,
@@ -21,7 +21,7 @@ const MessageList = ({
   selectedConfig,
   mainStructure,
   handleExportMarkdown,
-}) => {
+}) {
   const renderDetail = (detailData, messageConfig) => {
     if (!messageConfig) {
       return <p>无法渲染详细内容，缺少配置。</p>;
@@ -220,6 +220,41 @@ const MessageList = ({
     );
   };
 
+  const handleLocalAdjustSubmit = async (message, adjustedContent, index) => {
+    try {
+      if (message.type === 'mainStructure') {
+        await handleAdjustSubmit(message, adjustedContent);
+      } else if (message.type === selectedConfig.terms.sectionDetailType) {
+        const nodeIndexes = message.data.nodeIndexes;
+
+        if (nodeIndexes.node3 === undefined || nodeIndexes.node4 === undefined) {
+          throw new Error('消息数据中缺少节点索引');
+        }
+
+        await handleAdjustSubmit(message, adjustedContent, nodeIndexes);
+      } else {
+        throw new Error('未知的消息类型');
+      }
+
+      setLocalErrors((prev) => {
+        const newErrors = [...prev];
+        newErrors[index] = '';
+        return newErrors;
+      });
+      setLocalAdjustInputs((prev) => {
+        const newInputs = [...prev];
+        newInputs[index] = false;
+        return newInputs;
+      });
+    } catch (error) {
+      setLocalErrors((prev) => {
+        const newErrors = [...prev];
+        newErrors[index] = error.message;
+        return newErrors;
+      });
+    }
+  };
+
   const toggleLocalAdjustInput = (index) => {
     setLocalAdjustInputs((prev) => {
       const newInputs = [...prev];
@@ -229,122 +264,193 @@ const MessageList = ({
   };
 
   return (
-    <div className="flex-1 overflow-y-auto p-4">
-      {messages.map((message, index) => {
-        const messageConfig = message.selectedConfig || selectedConfig;
-        const isDetail = message.type === messageConfig?.terms.sectionDetailType;
-        const isMainStructure = message.type === 'mainStructure';
-        const isLatestMainStructure = isMainStructure && 
-          index === messages.findLastIndex((msg) => msg.type === 'mainStructure');
+    <div className="p-4">
+      {messages && messages.length > 0 ? (
+        messages.map((message, index) => {
+          if (!message) return null;
 
-        return (
-          <div
-            key={index}
-            className={`mb-4 p-4 rounded-lg shadow-md ${
-              message.role === 'user' ? 'bg-blue-100' : 'bg-white'
-            }`}
-          >
-            <div className="flex justify-between items-center">
-              <p className="font-semibold mb-2">
-                {message.role === 'user' ? '你' : 'AI'}
-                {isMainStructure && (
-                  <span className="ml-2 text-sm text-green-500">
-                    [{messageConfig.terms.node1}] {message.old ? `(old-${message.old})` : ''}
-                  </span>
-                )}
-                {isDetail && message.data && (
-                  <span className="ml-2 text-sm text-purple-500">
-                    [{messageConfig.terms.detail}] {messageConfig.terms.node3} {message.data.nodeIndexes.node3},{' '}
-                    {messageConfig.terms.node4} {message.data.nodeIndexes.node4}
-                  </span>
-                )}
-              </p>
-              <div className="flex space-x-2">
-                <button
-                  onClick={() => handleCopy(message.content)}
-                  className="text-blue-500 hover:text-blue-700"
-                >
-                  复制
-                </button>
-                <button
-                  onClick={() => handleDeleteMessage(index)}
-                  className="text-red-500 hover:text-red-700"
-                >
-                  删除
-                </button>
+          const messageConfig = message.selectedConfig || selectedConfig;
+          if (!messageConfig || !messageConfig.terms) {
+            return (
+              <div key={index} className="mb-4 p-4 bg-red-100 rounded-lg shadow-md">
+                <p className="text-red-600">无法渲染此消息，因为缺少配置。</p>
               </div>
+            );
+          }
+
+          const terms = messageConfig.terms;
+          const isDetail = message.type === terms.sectionDetailType;
+          const isMainStructure = message.type === 'mainStructure';
+          const isLatestMainStructure = isMainStructure && 
+            index === messages.findLastIndex((msg) => msg.type === 'mainStructure');
+
+          let messageContent;
+          if (isDetail && message.data) {
+            messageContent = message.data;
+          } else if (isMainStructure) {
+            messageContent = message.data || JSON.parse(message.content.slice(6));
+          } else {
+            messageContent = { type: 'text', content: message.content };
+          }
+
+          return (
+            <div
+              key={index}
+              className={`mb-4 p-4 rounded-lg shadow-md ${
+                message.role === 'user' ? 'bg-blue-100' : 'bg-white'
+              }`}
+            >
+              <div className="flex justify-between items-center">
+                <p className="font-semibold mb-2">
+                  {message.role === 'user' ? '你' : 'AI'}
+                  {isMainStructure && (
+                    <span className="ml-2 text-sm text-green-500">
+                      [{messageConfig.terms.node1}] {message.old ? `(old-${message.old})` : ''}
+                    </span>
+                  )}
+                  {isDetail && (
+                    <span className="ml-2 text-sm text-purple-500">
+                      [{messageConfig.terms.detail}] {messageConfig.terms.node3} {messageContent.nodeIndexes.node3},{' '}
+                      {messageConfig.terms.node4} {messageContent.nodeIndexes.node4}
+                    </span>
+                  )}
+                </p>
+                <div className="flex space-x-2">
+                  {(() => {
+                    let copyText = '';
+                    if (message.type === 'mainStructure') {
+                      copyText = message.content;
+                    } else if (message.type === terms.sectionDetailType && message.data) {
+                      copyText = message.data[terms.detail] || '';
+                    } else {
+                      copyText = message.content;
+                    }
+                    return (
+                      <button
+                        onClick={() => handleCopy(copyText)}
+                        className="text-blue-500 hover:text-blue-700"
+                      >
+                        复制
+                      </button>
+                    );
+                  })()}
+                  <button
+                    onClick={() => handleDeleteMessage(index)}
+                    className="text-red-500 hover:text-red-700"
+                  >
+                    删除
+                  </button>
+                </div>
+              </div>
+
+              {isDetail ? (
+                renderDetail(messageContent, messageConfig)
+              ) : isMainStructure ? (
+                renderMainStructure(messageContent, messageConfig, isLatestMainStructure)
+              ) : (
+                <ReactMarkdown rehypePlugins={[rehypeRaw]}>{messageContent.content}</ReactMarkdown>
+              )}
+
+              {isMainStructure && (
+                <div className="mt-4 space-x-2">
+                  {isLatestMainStructure && (
+                    <>
+                      {isGenerating ? (
+                        <button
+                          onClick={() => setIsGenerating(false)}
+                          className="px-4 py-2 bg-red-500 text-white rounded hover:bg-red-600 focus:outline-none"
+                        >
+                          立即终止
+                        </button>
+                      ) : (
+                        <button
+                          onClick={() => handleContinueFromMessage({ node3: 1, node4: 1 })}
+                          className="px-4 py-2 bg-green-500 text-white rounded hover:bg-green-600 focus:outline-none"
+                        >
+                          继续
+                        </button>
+                      )}
+                    </>
+                  )}
+                  <button
+                    onClick={() => toggleLocalAdjustInput(index)}
+                    className={`px-4 py-2 bg-yellow-500 text-white rounded hover:bg-yellow-600 focus:outline-none ${
+                      isAdjusting ? 'opacity-50 cursor-not-allowed' : ''
+                    }`}
+                    disabled={isAdjusting}
+                  >
+                    调整内容
+                  </button>
+                </div>
+              )}
+
+              {message.role !== 'user' && isDetail && (
+                <div className="mt-4 space-x-2">
+                  {isGenerating ? (
+                    <button
+                      onClick={() => setIsGenerating(false)}
+                      className="px-4 py-2 bg-red-500 text-white rounded hover:bg-red-600 focus:outline-none"
+                    >
+                      立即终止
+                    </button>
+                  ) : isFinished ? (
+                    <button className="px-4 py-2 bg-purple-500 text-white rounded focus:outline-none">
+                      生成完成
+                    </button>
+                  ) : (
+                    <button
+                      className="px-4 py-2 bg-green-500 text-white rounded hover:bg-green-600 focus:outline-none"
+                      onClick={() =>
+                        handleContinueFromMessage({
+                          node3: messageContent.nodeIndexes.node3,
+                          node4: messageContent.nodeIndexes.node4,
+                        })
+                      }
+                    >
+                      继续
+                    </button>
+                  )}
+                  <button
+                    onClick={() => toggleLocalAdjustInput(index)}
+                    className={`px-4 py-2 bg-yellow-500 text-white rounded hover:bg-yellow-600 focus:outline-none ${
+                      isAdjusting ? 'opacity-50 cursor-not-allowed' : ''
+                    }`}
+                    disabled={isAdjusting}
+                  >
+                    调整内容
+                  </button>
+                </div>
+              )}
+
+              {localAdjustInputs[index] && !isAdjusting && (
+                <div className="mt-4 p-4 bg-white rounded-lg shadow-md">
+                  <textarea
+                    value={adjustedContent}
+                    onChange={(e) => setAdjustedContent(e.target.value)}
+                    className="w-full p-2 border rounded focus:outline-none focus:ring-2 focus:ring-blue-500"
+                    rows={6}
+                    disabled={isAdjusting}
+                  />
+                  <button
+                    onClick={() => handleLocalAdjustSubmit(message, adjustedContent, index)}
+                    className={`mt-2 px-4 py-2 bg-blue-500 text-white rounded hover:bg-blue-600 focus:outline-none focus:ring-2 focus:ring-blue-500 ${
+                      isAdjusting ? 'opacity-50 cursor-not-allowed' : ''
+                    }`}
+                    disabled={isAdjusting}
+                  >
+                    提交调整
+                  </button>
+                  {localErrors[index] && (
+                    <p className="mt-2 text-red-500">{localErrors[index]}</p>
+                  )}
+                </div>
+              )}
             </div>
-
-            {isDetail ? (
-              renderDetail(message.data, messageConfig)
-            ) : isMainStructure ? (
-              renderMainStructure(message.data || JSON.parse(message.content.slice(6)), messageConfig, isLatestMainStructure)
-            ) : (
-              <ReactMarkdown>{message.content}</ReactMarkdown>
-            )}
-
-            {/* 操作按钮 */}
-            {(isMainStructure || (message.role !== 'user' && isDetail)) && (
-              <div className="mt-4 space-x-2">
-                {isGenerating ? (
-                  <button
-                    onClick={() => setIsGenerating(false)}
-                    className="px-4 py-2 bg-red-500 text-white rounded hover:bg-red-600 focus:outline-none"
-                  >
-                    立即终止
-                  </button>
-                ) : (
-                  <button
-                    onClick={() => handleContinueFromMessage({
-                      node3: message.data?.nodeIndexes?.node3 || 1,
-                      node4: message.data?.nodeIndexes?.node4 || 1
-                    })}
-                    className="px-4 py-2 bg-green-500 text-white rounded hover:bg-green-600 focus:outline-none"
-                  >
-                    继续
-                  </button>
-                )}
-                <button
-                  onClick={() => toggleLocalAdjustInput(index)}
-                  className={`px-4 py-2 bg-yellow-500 text-white rounded hover:bg-yellow-600 focus:outline-none ${
-                    isAdjusting ? 'opacity-50 cursor-not-allowed' : ''
-                  }`}
-                  disabled={isAdjusting}
-                >
-                  调整内容
-                </button>
-              </div>
-            )}
-
-            {/* 调整内容输入框 */}
-            {localAdjustInputs[index] && !isAdjusting && (
-              <div className="mt-4 p-4 bg-white rounded-lg shadow-md">
-                <textarea
-                  value={adjustedContent}
-                  onChange={(e) => setAdjustedContent(e.target.value)}
-                  className="w-full p-2 border rounded focus:outline-none focus:ring-2 focus:ring-blue-500"
-                  rows={6}
-                  disabled={isAdjusting}
-                />
-                <button
-                  onClick={() => handleAdjustSubmit(message, adjustedContent, message.data?.nodeIndexes)}
-                  className={`mt-2 px-4 py-2 bg-blue-500 text-white rounded hover:bg-blue-600 focus:outline-none focus:ring-2 focus:ring-blue-500 ${
-                    isAdjusting ? 'opacity-50 cursor-not-allowed' : ''
-                  }`}
-                  disabled={isAdjusting}
-                >
-                  提交调整
-                </button>
-                {localErrors[index] && (
-                  <p className="mt-2 text-red-500">{localErrors[index]}</p>
-                )}
-              </div>
-            )}
-          </div>
-        );
-      })}
+          );
+        })
+      ) : (
+        <p>当前没有消息。</p>
+      )}
     </div>
   );
-};
-
-export default MessageList; 
+} 
