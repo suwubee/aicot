@@ -521,17 +521,17 @@ export default function ChatInterfaceView({
                 <div
                   key={index}
                   onClick={() => handleChatClick(index)}
-                  className={`p-2 rounded shadow cursor-pointer flex justify-between items-center ${
+                  className={`p-2 rounded shadow cursor-pointer flex justify-between items-center w-full ${
                     index === currentChatIndex ? 'bg-blue-100' : 'bg-white'
                   }`}
                 >
-                  <span>{history.title}</span>
+                  <span className="truncate flex-1">{history.title}</span>
                   <button
                     onClick={(e) => {
                       e.stopPropagation();
                       deleteChatHistory(index);
                     }}
-                    className="text-red-500 hover:text-red-700 focus:outline-none"
+                    className="text-red-500 hover:text-red-700 focus:outline-none ml-2"
                   >
                     删除
                   </button>
@@ -585,9 +585,9 @@ export default function ChatInterfaceView({
                 </select>
                 <ul>
                   {configurations.map((config) => (
-                    <li key={config.id} className="flex items-center justify-between">
-                      <span>{config.name}</span>
-                      <div className="space-x-2">
+                    <li key={config.id} className="flex items-center justify-between w-full p-2 rounded">
+                      <span className="truncate flex-1">{config.name}</span>
+                      <div className="flex items-center space-x-2 ml-2">
                         <button
                           onClick={() => handleConfigEdit(config.id)}
                           className="text-blue-500 hover:text-blue-700 focus:outline-none"
@@ -698,6 +698,29 @@ export default function ChatInterfaceView({
             </svg>
           </button>
         </div>
+
+        {/* 添加配置选择下拉框 */}
+        {messages.length === 0 && (
+          <div className="p-4 bg-white border-b flex items-center justify-between">
+            <span className="text-sm text-gray-700">
+              当前配置：{selectedConfig ? selectedConfig.name : '未选择配置'}
+            </span>
+            <div className="flex items-center space-x-2">
+              <select
+                id="selectedConfig"
+                value={selectedConfig ? selectedConfig.id : ''}
+                onChange={(e) => handleConfigChange(e.target.value)}
+                className="p-2 border rounded focus:outline-none focus:ring-2 focus:ring-blue-500"
+              >
+                {configurations.map((config) => (
+                  <option key={config.id} value={config.id}>
+                    {config.name}
+                  </option>
+                ))}
+              </select>
+            </div>
+          </div>
+        )}
 
         {/* 聊天内容区域 */}
         <div 
