@@ -7,7 +7,6 @@ export default function ChatSidebar({
   currentChatIndex,
   handleChatClick,
   deleteChatHistory,
-  saveChatHistory,
   startNewChat,
   messages,
   showSettings,
@@ -31,6 +30,8 @@ export default function ChatSidebar({
   configFileInputRef,
   handleImportConfigs,
   handleImport,
+  mainStructure,
+  currentNodeIndexes,
 }) {
   return (
     <div className="flex flex-col h-full">
@@ -63,12 +64,7 @@ export default function ChatSidebar({
         </div>
         <div className="p-4 border-t flex-shrink-0">
           <button
-            onClick={() => {
-              if (messages.length > 0) {
-                saveChatHistory(messages);
-              }
-              startNewChat();
-            }}
+            onClick={startNewChat}
             className="w-full px-4 py-2 bg-green-500 text-white rounded hover:bg-green-600 focus:outline-none"
           >
             新建聊天

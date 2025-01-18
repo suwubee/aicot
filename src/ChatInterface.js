@@ -2,13 +2,105 @@
 
 import React, { useState, useRef, useEffect } from 'react';
 import ChatInterfaceView from './ChatInterfaceView';
+
+/**
+ * 服务模块导入和职责说明：
+ * 
+ * 1. contentGenerationService：处理内容生成相关的 API 调用
+ *    - generateNewMainStructure: 生成新的主结构
+ *    - adjustMainStructure: 调整现有主结构
+ *    - adjustDetail: 调整详细内容
+ *    - generateNextDetail: 生成下一个详细内容（内部使用 generateDetailContent）
+ */
 import {
   generateNewMainStructure,
   adjustMainStructure,
-  generateNewDetail,
   adjustDetail,
-} from './api';
-import defaultConfig from './config'; 
+  generateNextDetail,
+} from './services/contentGenerationService';
+
+/**
+ * 2. messageService：处理消息的创建和渲染
+ *    - createUserMessage: 创建用户消息
+ *    - createAssistantMessage: 创建助手消息
+ *    - renderDetailContent: 渲染详细内容
+ */
+import {
+  createUserMessage,
+  createAssistantMessage,
+  renderDetailContent
+} from './services/messageService';
+
+/**
+ * 3. chatHistoryService：处理聊天历史记录的存储和加载
+ *    - saveChatHistory: 保存聊天历史
+ *    - createNewChat: 创建新的聊天
+ *    - loadChatHistories: 加载聊天历史
+ *    - saveChatHistoriesToStorage: 保存到本地存储
+ *    - saveCurrentChatIndex: 保存当前聊天索引
+ */
+import {
+  saveChatHistory,
+  createNewChat,
+  loadChatHistories,
+  saveChatHistoriesToStorage,
+  saveCurrentChatIndex
+} from './services/chatHistoryService';
+
+/**
+ * 4. configurationService：处理配置项的管理
+ *    - loadConfigurations: 加载配置
+ *    - loadSelectedConfig: 加载选中的配置
+ *    - createNewConfig: 创建新配置
+ *    - saveConfigurations: 保存配置
+ *    - saveSelectedConfig: 保存选中的配置
+ *    - editConfig: 编辑配置
+ */
+import {
+  loadConfigurations,
+  loadSelectedConfig,
+  createNewConfig,
+  saveConfigurations,
+  saveSelectedConfig,
+  editConfig
+} from './services/configurationService';
+
+/**
+ * 5. exportImportService：处理数据的导入导出
+ *    - exportChatData: 导出聊天数据
+ *    - importChatData: 导入聊天数据
+ *    - exportConfigurations: 导出配置
+ *    - importConfigurations: 导入配置
+ *    - exportMarkdown: 导出 Markdown
+ */
+import {
+  exportChatData,
+  importChatData,
+  exportConfigurations,
+  importConfigurations,
+  exportMarkdown
+} from './services/exportImportService';
+
+import defaultConfig from './config';
+
+/**
+ * 模块协作流程：
+ * 
+ * 1. 用户输入处理流程
+ *    用户输入 -> createUserMessage -> generateNewMainStructure -> createAssistantMessage -> 更新状态
+ * 
+ * 2. 内容生成流程
+ *    generateNextDetail -> generateDetailContent -> createAssistantMessage -> 更新状态
+ * 
+ * 3. 内容调整流程
+ *    adjustMainStructure/adjustDetail -> createAssistantMessage -> 更新状态
+ * 
+ * 4. 历史记录管理
+ *    操作完成 -> saveChatHistory -> saveChatHistoriesToStorage
+ * 
+ * 5. 配置管理
+ *    配置变更 -> saveConfigurations/saveSelectedConfig -> 本地存储
+ */
 
 const models = [
   { value: 'gpt-4o-mini', label: 'GPT-4O Mini' },
@@ -64,6 +156,7 @@ export default function ChatInterface() {
   const [isAdjusting, setIsAdjusting] = useState(false);
   const [searchKeyword, setSearchKeyword] = useState('');
   const fileInputRef = useRef(null);
+  const configFileInputRef = useRef(null);
   const [configurations, setConfigurations] = useState(() => {
     const storedConfigs = localStorage.getItem('configurations');
     let parsedConfigs = [];
@@ -118,30 +211,6 @@ export default function ChatInterface() {
 
   const [showSidebar, setShowSidebar] = useState(false);
 
-  function renderDetailContent(detailData, nodeIndexes, nodeTitle, subNodeTitle, messageConfig) {
-    if (!detailData) return '';
-  
-    const { terms } = messageConfig || {};
-    const detailContent = detailData[terms.detail];
-  
-    if (!nodeIndexes || nodeIndexes.node3 === undefined || nodeIndexes.node4 === undefined) {
-      console.error('nodeIndexes 参数缺失或未定义');
-      return '';
-    }
-  
-    nodeTitle = nodeTitle || '';
-    subNodeTitle = subNodeTitle || '';
-  
-    return `
-      # 第${nodeIndexes.node3}个${terms.node3}：${nodeTitle}
-      ## 第${nodeIndexes.node4}个${terms.node4}：${subNodeTitle}
-  
-      ${detailContent}
-    `;
-  }
-
-  const configFileInputRef = useRef(null);
-
   useEffect(() => {
     const storedApiKey = localStorage.getItem('apiKey');
     if (storedApiKey) {
@@ -149,86 +218,46 @@ export default function ChatInterface() {
     }
 
     // 从 localStorage 加载聊天记录
-    const storedChatHistories = localStorage.getItem('chatHistories');
-    if (storedChatHistories) {
-      try {
-        const parsedHistories = JSON.parse(storedChatHistories);
-        setChatHistories(parsedHistories);
+    const histories = loadChatHistories();
+    setChatHistories(histories);
 
-        // 恢 currentChatIndex
-        const storedCurrentChatIndex = localStorage.getItem('currentChatIndex');
-        if (storedCurrentChatIndex !== null) {
-          const index = parseInt(storedCurrentChatIndex, 10);
-          setCurrentChatIndex(index);
+    // 恢复当前聊天索引
+    const storedCurrentChatIndex = localStorage.getItem('currentChatIndex');
+    if (storedCurrentChatIndex !== null) {
+      const index = parseInt(storedCurrentChatIndex, 10);
+      setCurrentChatIndex(index);
 
-          // 恢复当前聊天的状态
-          const currentHistory = parsedHistories[index];
-          if (currentHistory) {
-            setMessages(currentHistory.messages || []);
-            setMainStructure(currentHistory.mainStructure || null);
-            setCurrentNodeIndexes(currentHistory.currentNodeIndexes || {
-              node1: 1,
-              node2: 1,
-              node3: 1,
-              node4: 1,
-            });
-          }
-        } else {
-          // 如果没有保存的 currentChatIndex，默认选择第一个聊天
-          setCurrentChatIndex(0);
-          if (parsedHistories.length > 0) {
-            const firstHistory = parsedHistories[0];
-            setMessages(firstHistory.messages || []);
-            setMainStructure(firstHistory.mainStructure || null);
-            setCurrentNodeIndexes(firstHistory.currentNodeIndexes || {
-              node1: 1,
-              node2: 1,
-              node3: 1,
-              node4: 1,
-            });
-          }
-        }
-      } catch (error) {
-        console.error('从 localStorage 解析 chatHistories 失败:', error);
-        localStorage.removeItem('chatHistories');
-        localStorage.removeItem('currentChatIndex');
-      }
-    } else {
-      // 如果没有聊天记录，初始化一个空的未命名聊天
-      const initialChat = {
-        title: '未命名',
-        messages: [],
-        mainStructure: null,
-        currentNodeIndexes: {
+      // 恢复当前聊天的状态
+      const currentHistory = histories[index];
+      if (currentHistory) {
+        setMessages(currentHistory.messages || []);
+        setMainStructure(currentHistory.mainStructure || null);
+        setCurrentNodeIndexes(currentHistory.currentNodeIndexes || {
           node1: 1,
           node2: 1,
           node3: 1,
           node4: 1,
-        },
-      };
-      setChatHistories([initialChat]);
-      setCurrentChatIndex(0);
-      setMessages([]);
-      setMainStructure(null);
+        });
+      }
     }
 
-    // 在 useEffect 中添加以下代码，用于加载保存的 API URL
+    // 加载配置项
+    const configs = loadConfigurations(defaultConfig);
+    setConfigurations(configs);
+    const selected = loadSelectedConfig(configs);
+    setSelectedConfig(selected);
+
+    // 加载 API URL
     const storedApiUrl = localStorage.getItem('apiUrl');
     if (storedApiUrl) {
       setApiUrl(storedApiUrl);
     }
-
-    // 当 apiUrl 或 apiKey 变化时，保存到 localStorage
-    localStorage.setItem('apiUrl', apiUrl);
-    localStorage.setItem('apiKey', apiKey);
-  }, [apiUrl, apiKey]);
+  }, []);
 
   useEffect(() => {
-    localStorage.setItem('chatHistories', JSON.stringify(chatHistories));
+    saveChatHistoriesToStorage(chatHistories);
     if (currentChatIndex !== null) {
-      localStorage.setItem('currentChatIndex', currentChatIndex.toString());
-    } else {
-      localStorage.removeItem('currentChatIndex');
+      saveCurrentChatIndex(currentChatIndex);
     }
   }, [chatHistories, currentChatIndex]);
 
@@ -276,50 +305,46 @@ export default function ChatInterface() {
     }
     setError('');
 
-    const newUserMessage = { 
-      role: 'user', 
-      content: input, 
-      type: 'user', 
-      selectedConfig: selectedConfig // 保存当前的 selectedConfig
-    };
+    const newUserMessage = createUserMessage(input, selectedConfig);
     setMessages((prev) => [...prev, newUserMessage]);
     setInput('');
     setIsLoading(true);
 
     try {
-      const userContent = input;
-
-      // 调用新建流程设计的函数
       const { functionResult } = await generateNewMainStructure(
         apiUrl,
         apiKey,
         model,
-        userContent,
+        input,
         selectedConfig
       );
 
       if (functionResult) {
         setMainStructure(functionResult);
 
-        // 更新消息列表，添加 AI 的回复，包括流程设计内容和调整按钮
         const assistantContent =
           `${selectedConfig.terms.node1}:\n` + JSON.stringify(functionResult, null, 2);
 
-        const newAssistantMessage = {
-          role: 'assistant',
-          content: assistantContent,
-          type: 'mainStructure',
-          data: functionResult,
-          selectedConfig: selectedConfig, // 添加 selectedConfig
-        };
-        setMessages((prev) => {
-          const updatedMessages = [
-            ...prev,
-            newAssistantMessage,
-          ];
+        const newAssistantMessage = createAssistantMessage(
+          assistantContent,
+          'mainStructure',
+          functionResult,
+          selectedConfig
+        );
 
-          // 在这里直接使用 functionResult 而不是状态中的 mainStructure
-          saveChatHistory(updatedMessages, functionResult);
+        setMessages((prev) => {
+          const updatedMessages = [...prev, newAssistantMessage];
+          const newHistory = saveChatHistory(
+            updatedMessages,
+            functionResult,
+            currentNodeIndexes,
+            selectedConfig
+          );
+          setChatHistories((prevHistories) => {
+            const updated = [...prevHistories];
+            updated[currentChatIndex] = newHistory;
+            return updated;
+          });
           return updatedMessages;
         });
       } else {
@@ -348,57 +373,56 @@ export default function ChatInterface() {
   const handleAdjustSubmit = async (message, adjustedContent, nodeIndexes = null) => {
     try {
       setIsAdjusting(true);
-
-      // 获取配置项
       const config = message.selectedConfig || selectedConfig;
+
       if (!config) {
         setError('配置未定义');
-        setIsAdjusting(false);
         return;
       }
-      const terms = config.terms;
 
       if (message.type === 'mainStructure') {
-        // 调用调整流程设计函数
         const { functionResult } = await adjustMainStructure(
           apiUrl,
           apiKey,
           model,
-          message.data || JSON.parse(message.content.slice(6)),
+          message.data,
           adjustedContent,
           config
         );
 
-        // 更新消息列表，添加 AI 的回复，包括流程设计内容和调整按钮
         const assistantContent =
           `${config.terms.node1}:\n` + JSON.stringify(functionResult, null, 2);
 
-        const newAssistantMessage = {
-          role: 'assistant',
-          content: assistantContent,
-          type: 'mainStructure',
-          data: functionResult,
-          selectedConfig: config,
-        };
+        const newAssistantMessage = createAssistantMessage(
+          assistantContent,
+          'mainStructure',
+          functionResult,
+          config
+        );
 
         setMessages((prev) => {
-          const updatedMessages = [
-            ...prev,
-            newAssistantMessage,
-          ];
-          saveChatHistory(updatedMessages);
+          const updatedMessages = [...prev, newAssistantMessage];
+          const newHistory = saveChatHistory(
+            updatedMessages,
+            functionResult,
+            currentNodeIndexes,
+            config
+          );
+          setChatHistories((prevHistories) => {
+            const updated = [...prevHistories];
+            updated[currentChatIndex] = newHistory;
+            return updated;
+          });
           return updatedMessages;
         });
 
-        // 更新当前流程设计
         setMainStructure(functionResult);
-      } else if (message.type === terms.sectionDetailType) {
-        // 调用调整详细内容的函数，传递 mainStructure 参数
+      } else if (message.type === config.terms.sectionDetailType) {
         const { functionResult } = await adjustDetail(
           apiUrl,
           apiKey,
           model,
-          message.data[terms.detail],
+          message.data[config.terms.detail],
           adjustedContent,
           nodeIndexes,
           mainStructure,
@@ -406,38 +430,47 @@ export default function ChatInterface() {
           config
         );
 
-        // 在调用 renderDetailContent 时，传入 config
-        const assistantContent = renderDetailContent(
+        const content = renderDetailContent(
           functionResult,
           nodeIndexes,
-          functionResult[terms.title],
-          functionResult[terms.title],
+          functionResult[config.terms.title],
+          functionResult[config.terms.title],
           config
         );
 
         setMessages((prev) => {
-          // 更新匹配的 sectionDetailType 消息
           const updatedMessages = prev.map((msg) => {
             if (
-              msg.type === terms.sectionDetailType &&
+              msg.type === config.terms.sectionDetailType &&
               msg.data.nodeIndexes.node3 === nodeIndexes.node3 &&
               msg.data.nodeIndexes.node4 === nodeIndexes.node4
             ) {
-              return {
-                ...msg,
-                content: assistantContent,
-                data: functionResult,
-                selectedConfig: config,
-              };
+              return createAssistantMessage(
+                content,
+                config.terms.sectionDetailType,
+                functionResult,
+                config
+              );
             }
             return msg;
           });
-          saveChatHistory(updatedMessages);
+
+          const newHistory = saveChatHistory(
+            updatedMessages,
+            mainStructure,
+            currentNodeIndexes,
+            config
+          );
+          setChatHistories((prevHistories) => {
+            const updated = [...prevHistories];
+            updated[currentChatIndex] = newHistory;
+            return updated;
+          });
+
           return updatedMessages;
         });
       }
 
-      // 重置输入框
       setAdjustedContent('');
     } catch (error) {
       console.error('Error:', error);
@@ -451,12 +484,25 @@ export default function ChatInterface() {
     try {
       setIsFinished(false);
       setIsGenerating(true);
-
-      // 等待状态更新完成
       await new Promise((resolve) => setTimeout(resolve, 0));
 
-      // 开始从指定的节点索引生成内容
-      await generateNextDetail(startNodeIndexes);
+      await generateNextDetail(
+        startNodeIndexes,
+        mainStructure,
+        messages,
+        selectedConfig,
+        {
+          apiUrl,
+          apiKey,
+          model,
+          setMessages,
+          setChatHistories,
+          currentChatIndex,
+          isGeneratingRef,
+          setError,
+          setIsGenerating
+        }
+      );
     } catch (error) {
       console.error('Error:', error);
       setError(`生成流程时发生错误: ${error.message}`);
@@ -465,267 +511,18 @@ export default function ChatInterface() {
     }
   };
 
-  const generateNextDetail = async (startNodeIndexes) => {
-    try {
-      const terms = selectedConfig.terms;
-      const node2Items = terms.node2;
-      const node2ComplexItems = terms.node2ComplexItems;
-
-      let node2Index = startNodeIndexes.node2Index || 0;
-      let node3Index = startNodeIndexes.node3Index || 0;
-      let node4Index = startNodeIndexes.node4Index || 0;
-
-      let isFirstNode2Loop = true;
-      for (; node2Index < node2Items.length; node2Index++) {
-        const node2Name = node2Items[node2Index];
-        const node2Data = mainStructure[terms.node1][node2Name];
-
-        if (!node2Data) continue;
-
-        const isComplexItem = node2ComplexItems.includes(node2Name);
-
-        if (isComplexItem) {
-          // 处理复杂项
-          let isFirstNode3Loop = isFirstNode2Loop;
-          for (; node3Index < node2Data.length; node3Index++) {
-            const node3Item = node2Data[node3Index];
-            const node4Array = node3Item[terms.content];
-
-            if (!node4Array) continue;
-
-            let isFirstNode4Loop = isFirstNode3Loop;
-            for (; node4Index < node4Array.length; node4Index++) {
-              const nodeIndexes = {
-                node2Name,
-                node2Index,
-                node3Index,
-                node4Index,
-                node3: node3Index + 1,
-                node4: node4Index + 1,
-              };
-
-              if (!isGeneratingRef.current) return;
-
-              // 修改检查逻辑，兼容旧格式
-              const existingMessage = messages.find((msg) => {
-                if (msg.type !== terms.sectionDetailType) return false;
-                
-                // 处理旧格式的消息
-                if (!msg.data.nodeIndexes || !msg.data.nodeIndexes.node3) {
-                  return false;
-                }
-
-                return (
-                  msg.data.nodeIndexes.node2Name === nodeIndexes.node2Name &&
-                  msg.data.nodeIndexes.node3 === nodeIndexes.node3 &&
-                  msg.data.nodeIndexes.node4 === nodeIndexes.node4
-                );
-              });
-
-              if (existingMessage) {
-                console.log(`跳过已存在的索引：${nodeIndexes.node2Name}-${nodeIndexes.node3}-${nodeIndexes.node4}`);
-                continue;
-              }
-
-              console.log(`开始生成索引：${nodeIndexes.node2Name}-${nodeIndexes.node3}-${nodeIndexes.node4}`);
-              await generateDetailContent(nodeIndexes);
-              await new Promise((resolve) => setTimeout(resolve, 0));
-
-              if (isFirstNode4Loop) {
-                node4Index = 0;
-                isFirstNode4Loop = false;
-              }
-            }
-            node4Index = 0;
-            isFirstNode3Loop = false;
-          }
-          node3Index = 0;
-        } else {
-          // 处理简单项
-          const nodeIndexes = {
-            node2Name,
-            node2Index,
-            isSimpleNode: true,
-            content: node2Data,
-          };
-
-          if (!isGeneratingRef.current) return;
-
-          // 修改检查逻辑，兼容旧格式
-          const existingMessage = messages.find((msg) => {
-            if (msg.type !== terms.sectionDetailType) return false;
-            
-            // 检查是否为旧格式的消息
-            if (!msg.data.nodeIndexes) {
-              return msg.data.title === node2Name || msg.title === node2Name;
-            }
-
-            return (
-              msg.data.nodeIndexes.node2Name === nodeIndexes.node2Name &&
-              msg.data.nodeIndexes.isSimpleNode
-            );
-          });
-
-          if (existingMessage) {
-            console.log(`跳过已存在的简单节点：${nodeIndexes.node2Name}`);
-            continue;
-          }
-
-          console.log(`开始生成简单节点：${nodeIndexes.node2Name}`);
-          await generateDetailContent(nodeIndexes);
-          await new Promise((resolve) => setTimeout(resolve, 0));
-        }
-        isFirstNode2Loop = false;
-      }
-
-      setIsFinished(true);
-    } catch (error) {
-      console.error('生成细节内容时发生错误:', error);
-      setError(`生成细节内容时发生错误: ${error.message}`);
-      setIsGenerating(false);
-    }
-  };
-
-  const generateDetailContent = async (nodeIndexes) => {
-    // 保存请求时的 currentChatIndex
-    const requestChatIndex = currentChatIndex;
-
-    try {
-      // 调用生成详细内容的 API
-      const { functionResult } = await generateNewDetail(
-        apiUrl,
-        apiKey,
-        model,
-        nodeIndexes,
-        mainStructure,
-        messages,
-        selectedConfig
-      );
-
-      const newMessage = {
-        role: 'assistant',
-        type: selectedConfig.terms.sectionDetailType,
-        content: functionResult[selectedConfig.terms.detail],
-        data: {
-          ...functionResult,
-          nodeIndexes,
-        },
-      };
-
-      // 更新 messages
-      setMessages((prevMessages) => {
-        const updatedMessages = [...prevMessages];
-        const insertIndex = findInsertIndex(nodeIndexes);
-        updatedMessages.splice(insertIndex, 0, newMessage);
-        return updatedMessages;
-      });
-
-      // 更新 chatHistories
-      setChatHistories((prevHistories) => {
-        const updatedHistories = [...prevHistories];
-        const targetChat = updatedHistories[requestChatIndex];
-        if (targetChat) {
-          const insertIndex = findInsertIndex(nodeIndexes, targetChat.messages);
-          targetChat.messages.splice(insertIndex, 0, newMessage);
-        }
-        return updatedHistories;
-      });
-
-      // 等待 DOM 更新
-      await new Promise((resolve) => setTimeout(resolve, 100));
-
-      // 找到最新生成的消息元素并滚动到它的位置
-      const messageElements = document.querySelectorAll('.mb-4.p-4.rounded-lg.shadow-md');
-      const lastMessage = messageElements[messageElements.length - 1];
-      if (lastMessage) {
-        lastMessage.scrollIntoView({ behavior: 'smooth', block: 'start' });
-      }
-
-    } catch (error) {
-      console.error('生成细节内容时发生错误:', error);
-      setError(`生成细节内容时发生错误: ${error.message}`);
-      setIsGenerating(false);
-    }
-  };
-
-  // 修改 findInsertIndex 函数，添加第二个参数 messagesList
-  const findInsertIndex = (nodeIndexes, messagesList = messages) => {
-    const terms = selectedConfig.terms;
-
-    for (let i = 0; i < messagesList.length; i++) {
-      const msg = messagesList[i];
-      if (msg.type === terms.sectionDetailType) {
-        const msgNodeIndexes = msg.data.nodeIndexes;
-        if (
-          msgNodeIndexes.node2Index > nodeIndexes.node2Index ||
-          (msgNodeIndexes.node2Index === nodeIndexes.node2Index &&
-            msgNodeIndexes.node3Index > nodeIndexes.node3Index) ||
-          (msgNodeIndexes.node2Index === nodeIndexes.node2Index &&
-            msgNodeIndexes.node3Index === nodeIndexes.node3Index &&
-            msgNodeIndexes.node4Index > nodeIndexes.node4Index)
-        ) {
-          return i;
-        }
-      }
-    }
-    return messagesList.length;
-  };
-
-  const saveChatHistory = (updatedMessages, currentMainStructure) => {
-    const title = updatedMessages[0]?.content.slice(0, 10) || '未命名';
-    const updatedHistories = [...chatHistories];
-    updatedHistories[currentChatIndex] = {
-      title,
-      messages: updatedMessages,
-      mainStructure: currentMainStructure || mainStructure, // 使用最新的 mainStructure
-      currentNodeIndexes,
-      selectedConfig, // 存储 selectedConfig
-    };
-    setChatHistories(updatedHistories);
-  };
-
-  const handleChatClick = (index) => {
-    const chatHistory = chatHistories[index];
-    if (chatHistory) {
-      setMessages(chatHistory.messages || []);
-      setCurrentChatIndex(index);
-      setMainStructure(chatHistory.mainStructure || null); // 恢复保存的 mainStructure
-      setCurrentNodeIndexes(chatHistory.currentNodeIndexes || {
-        node1: 1,
-        node2: 1,
-        node3: 1,
-        node4: 1,
-      });
-      setSelectedConfig(chatHistory.selectedConfig || null); // 恢复 selectedConfig
-    } else {
-      console.error(`未找到索引为 ${index} 的聊天记录`);
-    }
-  };
-
   const startNewChat = () => {
     if (messages.length > 0) {
-      saveChatHistory(messages);
+      const newHistory = saveChatHistory(messages, mainStructure, currentNodeIndexes, selectedConfig);
+      setChatHistories((prev) => {
+        const updated = [...prev];
+        updated[currentChatIndex] = newHistory;
+        return updated;
+      });
     }
 
-    const newChatHistory = {
-      title: '未命名',
-      messages: [],
-      mainStructure: null,
-      currentNodeIndexes: {
-        node1: 1,
-        node2: 1,
-        node3: 1,
-        node4: 1,
-      },
-      selectedConfig, // 保存当前的 selectedConfig
-    };
-
-    setChatHistories((prevHistories) => {
-      const updatedHistories = [...prevHistories, newChatHistory];
-      localStorage.setItem('chatHistories', JSON.stringify(updatedHistories));
-      return updatedHistories;
-    });
-
+    const newChat = createNewChat(selectedConfig);
+    setChatHistories((prev) => [...prev, newChat]);
     setMessages([]);
     setMainStructure(null);
     setCurrentNodeIndexes({
@@ -735,22 +532,26 @@ export default function ChatInterface() {
       node4: 1,
     });
     setCurrentChatIndex(chatHistories.length);
-    // 保持 selectedConfig 不变
   };
 
-  const handleContinueFromMessage = (nodeIndexes) => {
-    handleContinue(nodeIndexes);
+  const handleChatClick = (index) => {
+    const chatHistory = chatHistories[index];
+    if (chatHistory) {
+      setMessages(chatHistory.messages || []);
+      setCurrentChatIndex(index);
+      setMainStructure(chatHistory.mainStructure || null);
+      setCurrentNodeIndexes(chatHistory.currentNodeIndexes || {
+        node1: 1,
+        node2: 1,
+        node3: 1,
+        node4: 1,
+      });
+      setSelectedConfig(chatHistory.selectedConfig || null);
+    }
   };
 
-  // 导出聊天记录和配置项
   const handleExport = () => {
-    const dataStr = JSON.stringify({
-      chatHistories,
-      configurations,
-      selectedConfig,
-    }, null, 2);
-    const blob = new Blob([dataStr], { type: 'application/json' });
-    const url = URL.createObjectURL(blob);
+    const url = exportChatData(chatHistories, configurations, selectedConfig);
     const link = document.createElement('a');
     link.href = url;
     link.download = 'chat_data.json';
@@ -760,30 +561,27 @@ export default function ChatInterface() {
     URL.revokeObjectURL(url);
   };
 
-  // 导入聊天记录和配置项
-  const handleImportClick = () => {
-    if (fileInputRef.current) {
-      fileInputRef.current.click();
-    }
-  };
-
-  const handleImport = (event) => {
+  const handleImport = async (event) => {
     const file = event.target.files[0];
     if (file) {
       const reader = new FileReader();
-      reader.onload = (e) => {
+      reader.onload = async (e) => {
         try {
-          const importedData = JSON.parse(e.target.result);
-          setChatHistories(importedData.chatHistories || []);
-          setConfigurations(importedData.configurations || []);
-          setSelectedConfig(importedData.selectedConfig || null);
+          const { chatHistories: importedHistories, configurations: importedConfigs, selectedConfig: importedSelected } = 
+            await importChatData(e.target.result);
+          
+          setChatHistories(importedHistories);
+          setConfigurations(importedConfigs);
+          setSelectedConfig(importedSelected);
           setMessages([]);
           setMainStructure(null);
           setCurrentChatIndex(null);
-          localStorage.setItem('chatHistories', JSON.stringify(importedData.chatHistories || []));
-          localStorage.setItem('configurations', JSON.stringify(importedData.configurations || []));
-          localStorage.setItem('selectedConfig', JSON.stringify(importedData.selectedConfig || null));
+          
+          saveChatHistoriesToStorage(importedHistories);
+          saveConfigurations(importedConfigs);
+          saveSelectedConfig(importedSelected);
           localStorage.removeItem('currentChatIndex');
+          
           alert('导入成功！');
         } catch (error) {
           console.error('导入失败:', error);
@@ -797,45 +595,34 @@ export default function ChatInterface() {
   const handleConfigChange = (configId) => {
     const config = configurations.find((cfg) => cfg.id === configId);
     setSelectedConfig(config);
-    localStorage.setItem('selectedConfig', JSON.stringify(config));
+    saveSelectedConfig(config);
   };
 
   const handleConfigAdd = () => {
-    const newConfig = {
-      ...defaultConfig,
-      id: Date.now().toString(),  // 生成唯一的ID
-      name: '思考模型',  // 默认名称
-    };
+    const newConfig = createNewConfig(defaultConfig);
     const updatedConfigs = [...configurations, newConfig];
     setConfigurations(updatedConfigs);
     setSelectedConfig(newConfig);
-    localStorage.setItem('configurations', JSON.stringify(updatedConfigs));
-    localStorage.setItem('selectedConfig', JSON.stringify(newConfig));
+    saveConfigurations(updatedConfigs);
+    saveSelectedConfig(newConfig);
   };
 
   const handleConfigEdit = (configId) => {
     const configToEdit = configurations.find((cfg) => cfg.id === configId);
     if (configToEdit) {
-      // 打开一个编辑框，用户可以直接编辑 JSON 数据
       const newConfigString = prompt('编辑配置项 (JSON 格式)：', JSON.stringify(configToEdit, null, 2));
       if (newConfigString) {
-        try {
-          const newConfig = JSON.parse(newConfigString);
-          if (!newConfig.name) {
-            alert('配置项必须包含名称');
-            return;
-          }
+        const newConfig = editConfig(newConfigString);
+        if (newConfig) {
           const updatedConfigs = configurations.map((cfg) =>
             cfg.id === configId ? newConfig : cfg
           );
           setConfigurations(updatedConfigs);
           if (selectedConfig.id === configId) {
             setSelectedConfig(newConfig);
-            localStorage.setItem('selectedConfig', JSON.stringify(newConfig));
+            saveSelectedConfig(newConfig);
           }
-          localStorage.setItem('configurations', JSON.stringify(updatedConfigs));
-        } catch (error) {
-          alert('无效的 JSON 格式');
+          saveConfigurations(updatedConfigs);
         }
       }
     }
@@ -846,18 +633,13 @@ export default function ChatInterface() {
     setConfigurations(updatedConfigs);
     if (selectedConfig && selectedConfig.id === configId) {
       setSelectedConfig(null);
-      localStorage.removeItem('selectedConfig');
+      saveSelectedConfig(null);
     }
-    localStorage.setItem('configurations', JSON.stringify(updatedConfigs));
+    saveConfigurations(updatedConfigs);
   };
 
   const handleExportConfigs = () => {
-    const dataStr = JSON.stringify({
-      configurations,
-      selectedConfig,
-    }, null, 2);
-    const blob = new Blob([dataStr], { type: 'application/json' });
-    const url = URL.createObjectURL(blob);
+    const url = exportConfigurations(configurations, selectedConfig);
     const link = document.createElement('a');
     link.href = url;
     link.download = 'configurations.json';
@@ -871,13 +653,16 @@ export default function ChatInterface() {
     const file = event.target.files[0];
     if (file) {
       const reader = new FileReader();
-      reader.onload = (e) => {
+      reader.onload = async (e) => {
         try {
-          const importedData = JSON.parse(e.target.result);
-          setConfigurations(importedData.configurations);
-          setSelectedConfig(importedData.selectedConfig);
-          localStorage.setItem('configurations', JSON.stringify(importedData.configurations));
-          localStorage.setItem('selectedConfig', JSON.stringify(importedData.selectedConfig));
+          const { configurations: importedConfigs, selectedConfig: importedSelected } = 
+            await importConfigurations(e.target.result);
+          
+          setConfigurations(importedConfigs);
+          setSelectedConfig(importedSelected);
+          saveConfigurations(importedConfigs);
+          saveSelectedConfig(importedSelected);
+          
           alert('配置项导入成功！');
         } catch (error) {
           console.error('导入配置项失败:', error);
@@ -890,33 +675,7 @@ export default function ChatInterface() {
 
   const handleExportMarkdown = () => {
     try {
-      let markdownContent = '';
-      
-      messages.forEach(message => {
-        // 检查消息类型和数据结构
-        if (message.type === selectedConfig.terms.sectionDetailType) {
-          // 添加数据验证
-          if (!message.data || !message.data.nodeIndexes) {
-            console.warn('消息缺少必要的数据结构:', message);
-            return; // 跳过这条消息
-          }
-
-          // 安全地获取标题
-          const title = message.data.标题 || message.data.title || '未命名章节';
-          
-          // 构建 markdown 内容
-          markdownContent += `### ${title}\n\n`;
-          
-          // 安全地添加内容
-          if (message.content) {
-            markdownContent += `${message.content}\n\n`;
-          }
-        }
-      });
-
-      // 创建并下载文件
-      const blob = new Blob([markdownContent], { type: 'text/markdown' });
-      const url = URL.createObjectURL(blob);
+      const url = exportMarkdown(messages, selectedConfig);
       const link = document.createElement('a');
       link.href = url;
       link.download = 'chat_content.md';
@@ -924,10 +683,19 @@ export default function ChatInterface() {
       link.click();
       document.body.removeChild(link);
       URL.revokeObjectURL(url);
-      
     } catch (error) {
       console.error('导出 Markdown 时发生错误:', error);
       setError(`导出失败: ${error.message}`);
+    }
+  };
+
+  const handleContinueFromMessage = (nodeIndexes) => {
+    handleContinue(nodeIndexes);
+  };
+
+  const handleImportClick = () => {
+    if (fileInputRef.current) {
+      fileInputRef.current.click();
     }
   };
 
@@ -969,12 +737,11 @@ export default function ChatInterface() {
         currentChatIndex={currentChatIndex}
         setCurrentChatIndex={setCurrentChatIndex}
         startNewChat={startNewChat}
-        saveChatHistory={saveChatHistory}
         handleChatClick={handleChatClick}
         isAdjusting={isAdjusting}
         setError={setError}
         handleContinueFromMessage={handleContinueFromMessage}
-        setMainStructure={setMainStructure}  // 添加这行
+        setMainStructure={setMainStructure}
         handleExport={handleExport}
         handleImportClick={handleImportClick}
         handleImport={handleImport}
@@ -995,6 +762,7 @@ export default function ChatInterface() {
         handleExportMarkdown={handleExportMarkdown}
         showSidebar={showSidebar}
         setShowSidebar={setShowSidebar}
+        currentNodeIndexes={currentNodeIndexes}
       />
     </div>
   );

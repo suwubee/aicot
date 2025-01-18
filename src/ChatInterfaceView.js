@@ -7,6 +7,8 @@ import InputArea from './view/InputArea';
 
 export default function ChatInterfaceView({
   messages,
+  chatHistories,
+  setChatHistories,
   setMessages,
   error,
   input,
@@ -33,13 +35,9 @@ export default function ChatInterfaceView({
   isGenerating,
   setIsGenerating,
   isFinished,
-  chatHistories,
-  setChatHistories,
-  setMainStructure,
   currentChatIndex,
   setCurrentChatIndex,
   startNewChat,
-  saveChatHistory,
   handleChatClick,
   isAdjusting,
   setError,
@@ -59,6 +57,7 @@ export default function ChatInterfaceView({
   setShowSidebar,
   handleExportMarkdown,
   configFileInputRef,
+  currentNodeIndexes,
 }) {
   const [localAdjustInputs, setLocalAdjustInputs] = useState(Array(messages.length).fill(false));
   const [localErrors, setLocalErrors] = useState(Array(messages.length).fill(''));
@@ -122,7 +121,6 @@ export default function ChatInterfaceView({
               setCurrentChatIndex(currentChatIndex - 1);
             }
           }}
-          saveChatHistory={saveChatHistory}
           startNewChat={startNewChat}
           messages={messages}
           showSettings={showSettings}
@@ -146,6 +144,8 @@ export default function ChatInterfaceView({
           fileInputRef={fileInputRef}
           configFileInputRef={configFileInputRef}
           handleImportConfigs={handleImportConfigs}
+          mainStructure={mainStructure}
+          currentNodeIndexes={currentNodeIndexes}
         />
       </div>
 
