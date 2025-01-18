@@ -19,6 +19,8 @@ import {
   generateNextDetail,
 } from './services/contentGenerationService';
 
+import { generateDynamicConfig } from './services/dynamicConfigService';
+
 /**
  * 2. messageService：处理消息的创建和渲染
  *    - createUserMessage: 创建用户消息
@@ -159,18 +161,47 @@ export default function ChatInterface() {
   const fileInputRef = useRef(null);
   const configFileInputRef = useRef(null);
   const [configurations, setConfigurations] = useState(() => {
+    // 创建动态思维链配置（系统固定配置，不存储在缓存中）
+    const dynamicConfig = {
+      id: 'dynamic',
+      name: '动态思维链',
+      isDynamic: true,
+      isSystemConfig: true, // 标记为系统配置
+      terms: {
+        node1: '',
+        node2: [],
+        node2ComplexItems: [],
+        node3: '步骤',
+        node4: '子步骤',
+        node5: '内容',
+        mainStructure: '流程设计',
+        title: '标题',
+        outline: '大纲',
+        content: '内容',
+        detail: '详细内容',
+        type: '类型',
+        detailFlag: 'detail',
+        sectionDetailType: 'sectionDetail'
+      },
+      fixedDescriptions: {},
+      systemRolePrompt: ''
+    };
+
     const storedConfigs = localStorage.getItem('configurations');
     let parsedConfigs = [];
     if (storedConfigs) {
       try {
         parsedConfigs = JSON.parse(storedConfigs);
+        // 过滤掉可能存在的旧的动态思维链配置
+        parsedConfigs = parsedConfigs.filter(config => config.id !== 'dynamic');
       } catch (error) {
         console.error('解析配置项时发生错误:', error);
         parsedConfigs = [];
       }
     }
-    if (parsedConfigs && parsedConfigs.length > 0) {
-      return parsedConfigs;
+
+    if (parsedConfigs.length > 0) {
+      return [dynamicConfig, ...parsedConfigs];
     } else {
       // 如果没有存储的配置，使用默认配置
       const defaultConfigurations = [
@@ -183,7 +214,7 @@ export default function ChatInterface() {
         },
       ];
       localStorage.setItem('configurations', JSON.stringify(defaultConfigurations));
-      return defaultConfigurations;
+      return [dynamicConfig, ...defaultConfigurations];
     }
   });
 
@@ -193,6 +224,10 @@ export default function ChatInterface() {
     if (storedSelectedConfig) {
       try {
         parsedConfig = JSON.parse(storedSelectedConfig);
+        // 如果存储的是动态思维链配置，使用新的动态配置
+        if (parsedConfig.id === 'dynamic') {
+          return configurations[0];
+        }
       } catch (error) {
         console.error('解析选中配置项时发生错误:', error);
         parsedConfig = null;
@@ -200,13 +235,9 @@ export default function ChatInterface() {
     }
     if (parsedConfig) {
       return parsedConfig;
-    } else if (configurations && configurations.length > 0) {
-      // 如果没有选中的默认选择第一
-      const defaultConfig = configurations[0];
-      localStorage.setItem('selectedConfig', JSON.stringify(defaultConfig));
-      return defaultConfig;
     } else {
-      return null;
+      // 默认选择动态思维链配置
+      return configurations[0];
     }
   });
 
@@ -338,13 +369,28 @@ export default function ChatInterface() {
       setMessages((prev) => [...prev, newUserMessage]);
       setInput('');
 
+      // 如果是动态配置，先生成配置文件
+      let configToUse = selectedConfig;
+      if (selectedConfig.isDynamic) {
+        try {
+          const { handleDynamicConfig } = await import('./services/dynamicConfigService');
+          const { config, message } = await handleDynamicConfig(apiUrl, apiKey, model, input);
+          configToUse = config;
+          
+          // 添加配置生成消息
+          setMessages((prev) => [...prev, message]);
+        } catch (error) {
+          throw new Error(`生成动态配置失败: ${error.message}`);
+        }
+      }
+
       // 生成主结构
       const { functionResult } = await generateNewMainStructure(
         apiUrl,
         apiKey,
         model,
         input,
-        selectedConfig
+        configToUse
       );
 
       if (!functionResult) {
@@ -355,12 +401,12 @@ export default function ChatInterface() {
       setMainStructure(functionResult);
 
       // 创建并添加助手消息
-      const assistantContent = `${selectedConfig.terms.node1}:\n${JSON.stringify(functionResult, null, 2)}`;
+      const assistantContent = `${configToUse.terms.node1}:\n${JSON.stringify(functionResult, null, 2)}`;
       const newAssistantMessage = createAssistantMessage(
         assistantContent,
         'mainStructure',
         functionResult,
-        selectedConfig
+        configToUse
       );
 
       // 更新消息和聊天历史
@@ -370,7 +416,7 @@ export default function ChatInterface() {
           updatedMessages,
           functionResult,
           currentNodeIndexes,
-          selectedConfig
+          configToUse
         );
         
         // 更新聊天历史
@@ -742,16 +788,24 @@ export default function ChatInterface() {
 
   const handleConfigChange = (configId) => {
     const config = configurations.find((cfg) => cfg.id === configId);
-    setSelectedConfig(config);
-    saveSelectedConfig(config);
+    if (config) {
+      setSelectedConfig(config);
+      // 只有非系统配置才保存到本地存储
+      if (!config.isSystemConfig) {
+        saveSelectedConfig(config);
+      }
+    }
   };
 
   const handleConfigAdd = () => {
     const newConfig = createNewConfig(defaultConfig);
-    const updatedConfigs = [...configurations, newConfig];
+    // 保持动态思维链在第一位
+    const updatedConfigs = [configurations[0], newConfig, ...configurations.slice(1)];
     setConfigurations(updatedConfigs);
+    // 只保存非系统配置
+    const configsToSave = updatedConfigs.filter(config => !config.isSystemConfig);
+    saveConfigurations(configsToSave);
     setSelectedConfig(newConfig);
-    saveConfigurations(updatedConfigs);
     saveSelectedConfig(newConfig);
   };
 
@@ -777,13 +831,27 @@ export default function ChatInterface() {
   };
 
   const handleConfigDelete = (configId) => {
+    // 不允许删除系统配置
+    const configToDelete = configurations.find(cfg => cfg.id === configId);
+    if (!configToDelete || configToDelete.isSystemConfig) {
+      setError('系统配置不能删除');
+      return;
+    }
+
     const updatedConfigs = configurations.filter((cfg) => cfg.id !== configId);
     setConfigurations(updatedConfigs);
+    
+    // 如果删除的是当前选中的配置，切换到动态思维链配置
     if (selectedConfig && selectedConfig.id === configId) {
-      setSelectedConfig(null);
-      saveSelectedConfig(null);
+      const dynamicConfig = configurations.find(cfg => cfg.isSystemConfig);
+      if (dynamicConfig) {
+        setSelectedConfig(dynamicConfig);
+      }
     }
-    saveConfigurations(updatedConfigs);
+    
+    // 只保存非系统配置
+    const configsToSave = updatedConfigs.filter(config => config && !config.isSystemConfig);
+    saveConfigurations(configsToSave);
   };
 
   const handleExportConfigs = () => {

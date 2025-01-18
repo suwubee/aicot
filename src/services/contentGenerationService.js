@@ -6,6 +6,7 @@ import {
   adjustMainStructure as apiAdjustMainStructure,
   generateNewDetail as apiGenerateNewDetail,
   adjustDetail as apiAdjustDetail,
+  generateDynamicConfig as apiGenerateDynamicConfig,
 } from '../api';
 
 /**
@@ -25,7 +26,38 @@ export const generateNewMainStructure = async (
   selectedConfig
 ) => {
   try {
-    return await apiGenerateNewMainStructure(apiUrl, apiKey, model, userContent, selectedConfig);
+    const result = await apiGenerateNewMainStructure(apiUrl, apiKey, model, userContent, selectedConfig);
+    
+    // 如果是动态配置，转换主结构以匹配现有函数的期望格式
+    if (selectedConfig.isDynamic && result.functionResult) {
+      const transformed = transformMainStructure(result.functionResult, selectedConfig);
+      if (transformed) {
+        // 确保转换后的结构是有效的
+        const mainKey = selectedConfig.terms.node1;
+        if (transformed[mainKey]) {
+          result.functionResult = transformed;
+          
+          // 验证转换后的结构
+          const complexItems = selectedConfig.terms.node2ComplexItems || [];
+          for (const key of Object.keys(transformed[mainKey])) {
+            const value = transformed[mainKey][key];
+            if (complexItems.includes(key)) {
+              // 确保复杂项是数组
+              if (!Array.isArray(value)) {
+                throw new Error(`${key} 的结构无效，应为数组类型`);
+              }
+            } else {
+              // 确保简单项是字符串
+              if (typeof value !== 'string') {
+                throw new Error(`${key} 的结构无效，应为字符串类型`);
+              }
+            }
+          }
+        }
+      }
+    }
+    
+    return result;
   } catch (error) {
     throw new Error(`生成主结构失败: ${error.message}`);
   }
@@ -174,6 +206,28 @@ export const generateDetailContent = async (
 };
 
 /**
+ * 从消息列表中获取动态配置
+ * @param {Array} messages - 消息列表
+ * @param {Object} selectedConfig - 当前选中的配置
+ * @returns {Object} 配置对象
+ */
+const getDynamicConfigFromMessages = (messages, selectedConfig) => {
+  if (!selectedConfig.isDynamic) {
+    return selectedConfig;
+  }
+
+  // 查找最近的主结构消息，它应该包含正确的配置
+  for (let i = messages.length - 1; i >= 0; i--) {
+    const message = messages[i];
+    if (message.type === 'mainStructure' && message.selectedConfig) {
+      return message.selectedConfig;
+    }
+  }
+
+  return selectedConfig;
+};
+
+/**
  * 生成下一个详细内容
  * @param {Object} startNodeIndexes - 起始节点索引
  * @param {Object} mainStructure - 主结构
@@ -189,20 +243,42 @@ export const generateNextDetail = async (
   selectedConfig,
   params
 ) => {
-  const {
-    apiUrl,
-    apiKey,
-    model,
-    setMessages,
-    setChatHistories,
-    currentChatIndex,
-    isGeneratingRef,
-    setError,
-    setIsGenerating
-  } = params;
+  // 首先获取正确的配置
+  const config = getDynamicConfigFromMessages(messages, selectedConfig);
+  
+  if (!config) {
+    throw new Error('无法获取配置信息');
+  }
+
+  const { terms } = config;
+  if (!terms) {
+    throw new Error('配置文件缺失或未定义');
+  }
+
+  if (!mainStructure || !mainStructure[terms.node1]) {
+    throw new Error(`流程设计结构不完整，无法生成${terms.detail}`);
+  }
+
+  // 处理简单节点
+  if (startNodeIndexes.isSimpleNode) {
+    // ... existing code for simple nodes ...
+  }
+
+  // 获取当前节点的数据
+  const node2Data = mainStructure[terms.node1][startNodeIndexes.node2Name];
+  if (!Array.isArray(node2Data) || startNodeIndexes.node3 < 1 || startNodeIndexes.node3 > node2Data.length) {
+    throw new Error(`${terms.node2} 节点 "${startNodeIndexes.node2Name}" 的索引 ${startNodeIndexes.node3} 超出范围`);
+  }
+
+  const node3Data = node2Data[startNodeIndexes.node3 - 1];
+  if (!node3Data[terms.content] || startNodeIndexes.node4 < 1 || startNodeIndexes.node4 > node3Data[terms.content].length) {
+    throw new Error(`${terms.node4} 索引 ${startNodeIndexes.node4} 超出范围`);
+  }
 
   try {
-    const terms = selectedConfig.terms;
+    // 获取正确的配置
+    const configToUse = getDynamicConfigFromMessages(messages, selectedConfig);
+    const terms = configToUse.terms;
     const node2Items = terms.node2;
     const node2ComplexItems = terms.node2ComplexItems;
 
@@ -238,7 +314,7 @@ export const generateNextDetail = async (
               node4: node4Index + 1,
             };
 
-            if (!isGeneratingRef.current) return;
+            if (!params.isGeneratingRef.current) return;
 
             const existingMessage = messages.find((msg) => {
               if (msg.type !== terms.sectionDetailType) return false;
@@ -258,13 +334,13 @@ export const generateNextDetail = async (
             }
 
             console.log(`开始生成索引：${nodeIndexes.node2Name}-${nodeIndexes.node3}-${nodeIndexes.node4}`);
-            await generateDetailContent(nodeIndexes, mainStructure, messages, selectedConfig, {
-              apiUrl,
-              apiKey,
-              model,
-              setMessages,
-              setChatHistories,
-              currentChatIndex
+            await generateDetailContent(nodeIndexes, mainStructure, messages, configToUse, {
+              apiUrl: params.apiUrl,
+              apiKey: params.apiKey,
+              model: params.model,
+              setMessages: params.setMessages,
+              setChatHistories: params.setChatHistories,
+              currentChatIndex: params.currentChatIndex
             });
 
             if (isFirstNode4Loop) {
@@ -284,7 +360,7 @@ export const generateNextDetail = async (
           content: node2Data,
         };
 
-        if (!isGeneratingRef.current) return;
+        if (!params.isGeneratingRef.current) return;
 
         const existingMessage = messages.find((msg) => {
           if (msg.type !== terms.sectionDetailType) return false;
@@ -303,23 +379,23 @@ export const generateNextDetail = async (
         }
 
         console.log(`开始生成简单节点：${nodeIndexes.node2Name}`);
-        await generateDetailContent(nodeIndexes, mainStructure, messages, selectedConfig, {
-          apiUrl,
-          apiKey,
-          model,
-          setMessages,
-          setChatHistories,
-          currentChatIndex
+        await generateDetailContent(nodeIndexes, mainStructure, messages, configToUse, {
+          apiUrl: params.apiUrl,
+          apiKey: params.apiKey,
+          model: params.model,
+          setMessages: params.setMessages,
+          setChatHistories: params.setChatHistories,
+          currentChatIndex: params.currentChatIndex
         });
       }
       isFirstNode2Loop = false;
     }
 
-    setIsGenerating(false);
+    params.setIsGenerating(false);
   } catch (error) {
     console.error('生成细节内容时发生错误:', error);
-    setError(`生成细节内容时发生错误: ${error.message}`);
-    setIsGenerating(false);
+    params.setError(`生成细节内容时发生错误: ${error.message}`);
+    params.setIsGenerating(false);
   }
 };
 
@@ -355,5 +431,93 @@ export const generateNewDetail = async (
     );
   } catch (error) {
     throw new Error(`生成详细内容失败: ${error.message}`);
+  }
+};
+
+/**
+ * 转换动态配置的主结构以匹配现有函数的期望格式
+ * @param {Object} mainStructure - 原始主结构
+ * @param {Object} config - 配置对象
+ * @returns {Object} 转换后的主结构
+ */
+const transformMainStructure = (mainStructure, config) => {
+  if (!mainStructure || !config || !config.terms || !config.terms.node1) {
+    return mainStructure;
+  }
+
+  // 获取原始主结构的第一个键
+  const originalKey = Object.keys(mainStructure)[0];
+  if (!originalKey) {
+    return mainStructure;
+  }
+
+  const originalData = mainStructure[originalKey];
+  const transformedData = {};
+  const node2ComplexItems = config.terms.node2ComplexItems || [];
+  const { title, content, detail } = config.terms;
+
+  // 遍历所有 node2 项
+  for (const node2Key of Object.keys(originalData)) {
+    const node2Data = originalData[node2Key];
+    
+    // 检查是否是复杂项
+    if (node2ComplexItems.includes(node2Key)) {
+      // 如果是复杂项，确保它是数组，并且每个元素都有正确的结构
+      if (Array.isArray(node2Data)) {
+        transformedData[node2Key] = node2Data.map(item => ({
+          [title]: item[title] || '',
+          [content]: item[content] || [],
+          [detail]: true
+        }));
+      } else {
+        transformedData[node2Key] = [{
+          [title]: node2Data[title] || '',
+          [content]: node2Data[content] || [],
+          [detail]: true
+        }];
+      }
+    } else {
+      // 如果不是复杂项，确保它是字符串
+      if (typeof node2Data === 'string') {
+        transformedData[node2Key] = node2Data;
+      } else if (Array.isArray(node2Data)) {
+        // 如果是数组，取第一个元素的描述
+        transformedData[node2Key] = node2Data[0]?.[title] || 
+                                   node2Data[0]?.[content]?.[0] || 
+                                   '暂无描述';
+      } else {
+        // 其他情况，尝试从对象中获取描述
+        transformedData[node2Key] = node2Data[title] || 
+                                   String(node2Data);
+      }
+    }
+  }
+
+  // 创建新的主结构对象
+  return {
+    [config.terms.node1]: transformedData
+  };
+};
+
+/**
+ * 生成动态配置
+ * @param {string} apiUrl - API地址
+ * @param {string} apiKey - API密钥
+ * @param {string} model - 模型名称
+ * @param {string} userContent - 用户输入内容
+ * @returns {Promise<Object>} 生成的动态配置
+ */
+export const generateDynamicConfig = async (apiUrl, apiKey, model, userContent) => {
+  try {
+    const result = await apiGenerateDynamicConfig(apiUrl, apiKey, model, userContent);
+    
+    // 如果是主结构生成的响应，转换结构以匹配现有函数
+    if (result.functionResult && typeof result.functionResult === 'object') {
+      result.functionResult = transformMainStructure(result.functionResult, result.config);
+    }
+    
+    return result;
+  } catch (error) {
+    throw new Error(`生成动态配置失败: ${error.message}`);
   }
 }; 

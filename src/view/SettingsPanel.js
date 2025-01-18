@@ -32,27 +32,36 @@ const SettingsPanel = ({
         >
           {configurations.map((config) => (
             <option key={config.id} value={config.id}>
-              {config.name}
+              {config.name}{config.isSystemConfig ? ' (系统)' : ''}
             </option>
           ))}
         </select>
         <ul>
           {configurations.map((config) => (
             <li key={config.id} className="flex items-center justify-between w-full p-2 rounded">
-              <span className="truncate flex-1">{config.name}</span>
+              <span className="truncate flex-1">
+                {config.name}
+                {config.isSystemConfig && (
+                  <span className="ml-2 text-xs text-gray-500">(系统)</span>
+                )}
+              </span>
               <div className="flex items-center space-x-2 ml-2">
-                <button
-                  onClick={() => handleConfigEdit(config.id)}
-                  className="text-blue-500 hover:text-blue-700 focus:outline-none"
-                >
-                  编辑
-                </button>
-                <button
-                  onClick={() => handleConfigDelete(config.id)}
-                  className="text-red-500 hover:text-red-700 focus:outline-none"
-                >
-                  删除
-                </button>
+                {!config.isSystemConfig && (
+                  <>
+                    <button
+                      onClick={() => handleConfigEdit(config.id)}
+                      className="text-blue-500 hover:text-blue-700 focus:outline-none"
+                    >
+                      编辑
+                    </button>
+                    <button
+                      onClick={() => handleConfigDelete(config.id)}
+                      className="text-red-500 hover:text-red-700 focus:outline-none"
+                    >
+                      删除
+                    </button>
+                  </>
+                )}
               </div>
             </li>
           ))}

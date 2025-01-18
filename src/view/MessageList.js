@@ -167,6 +167,18 @@ export default function MessageList({
 
     const design = mainStructureData[terms.node1];
 
+    const hasCompleteStructure = terms.node2.every(node2Name => {
+      const node2Data = design[node2Name];
+      if (!node2Data) return false;
+      
+      if (terms.node2ComplexItems.includes(node2Name)) {
+        return Array.isArray(node2Data) && node2Data.every(item => 
+          item[terms.title] && Array.isArray(item[terms.content]));
+      }
+      return typeof node2Data === 'string' || 
+             (Array.isArray(node2Data) && node2Data.length > 0);
+    });
+
     return (
       <div className="mt-4">
         <h3 className="text-xl font-semibold mb-2">{terms.node1}</h3>
@@ -203,7 +215,7 @@ export default function MessageList({
             )}
           </div>
         ))}
-        {isLatest && mainStructure && mainStructure[terms.node1] && (
+        {isLatest && hasCompleteStructure && (
           <div className="mt-4 space-x-2">
             <button className="px-5 py-2 bg-blue-500 text-white rounded hover:bg-blue-600 focus:outline-none">
               最新流程设计
@@ -289,6 +301,8 @@ export default function MessageList({
             messageContent = message.data;
           } else if (isMainStructure) {
             messageContent = message.data || JSON.parse(message.content.slice(6));
+          } else if (message.type === 'config') {
+            messageContent = message.data;
           } else {
             messageContent = { type: 'text', content: message.content };
           }
@@ -314,6 +328,11 @@ export default function MessageList({
                       {messageConfig.terms.node4} {messageContent.nodeIndexes.node4}
                     </span>
                   )}
+                  {message.type === 'config' && (
+                    <span className="ml-2 text-sm text-blue-500">
+                      [动态配置生成]
+                    </span>
+                  )}
                 </p>
                 <div className="flex space-x-2">
                   {(() => {
@@ -322,6 +341,8 @@ export default function MessageList({
                       copyText = message.content;
                     } else if (message.type === terms.sectionDetailType && message.data) {
                       copyText = message.data[terms.detail] || '';
+                    } else if (message.type === 'config') {
+                      copyText = JSON.stringify(message.data, null, 2);
                     } else {
                       copyText = message.content;
                     }
@@ -347,6 +368,13 @@ export default function MessageList({
                 renderDetail(messageContent, messageConfig)
               ) : isMainStructure ? (
                 renderMainStructure(messageContent, messageConfig, isLatestMainStructure)
+              ) : message.type === 'config' ? (
+                <div className="mt-4 bg-gray-50 p-4 rounded-lg">
+                  <h3 className="text-lg font-semibold mb-2">动态配置生成结果</h3>
+                  <pre className="whitespace-pre-wrap overflow-x-auto">
+                    {JSON.stringify(messageContent, null, 2)}
+                  </pre>
+                </div>
               ) : (
                 <ReactMarkdown rehypePlugins={[rehypeRaw]}>{messageContent.content}</ReactMarkdown>
               )}
@@ -364,7 +392,20 @@ export default function MessageList({
                         </button>
                       ) : (
                         <button
-                          onClick={() => handleContinueFromMessage({ node3: 1, node4: 1 })}
+                          onClick={() => {
+                            const firstComplexItem = messageConfig.terms.node2ComplexItems[0];
+                            if (!firstComplexItem) {
+                              return;
+                            }
+                            
+                            const startNodeIndexes = {
+                              node2Name: firstComplexItem,
+                              node3: 1,
+                              node4: 1
+                            };
+                            
+                            handleContinueFromMessage(startNodeIndexes);
+                          }}
                           className="px-4 py-2 bg-green-500 text-white rounded hover:bg-green-600 focus:outline-none"
                         >
                           继续
