@@ -115,4 +115,34 @@ export const editConfig = (configString) => {
     console.error('编辑配置项时发生错误:', error);
     return null;
   }
+};
+
+/**
+ * 验证配置和 API 参数是否有效
+ * @param {Object} params - 验证参数
+ * @param {Object} params.selectedConfig - 当前选中的配置
+ * @param {string} params.apiKey - API Key
+ * @param {string} params.apiUrl - API URL
+ * @param {boolean} params.showAlert - 是否显示弹框提示，默认为 true
+ * @returns {Object} 验证结果，包含是否有效和错误信息
+ */
+export const validateConfigAndApi = ({ selectedConfig, apiKey, apiUrl, showAlert = true }) => {
+  let error = null;
+
+  if (!selectedConfig) {
+    error = '请先选择一个配置项！';
+  } else if (!apiKey || !apiKey.trim()) {
+    error = '请先设置 API Key！';
+  } else if (!apiUrl || !apiUrl.trim()) {
+    error = '请先设置 API URL！';
+  }
+
+  if (error && showAlert) {
+    alert(error);
+  }
+
+  return {
+    isValid: !error,
+    error
+  };
 }; 

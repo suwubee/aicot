@@ -113,11 +113,31 @@ export default function ChatInterfaceView({
           deleteChatHistory={(index) => {
             const updatedHistories = chatHistories.filter((_, i) => i !== index);
             setChatHistories(updatedHistories);
-            localStorage.setItem('chatHistories', JSON.stringify(updatedHistories));
-            if (currentChatIndex === index) {
-              setCurrentChatIndex(null);
+            
+            // 更新当前聊天索引和消息
+            if (updatedHistories.length === 0) {
+              // 如果删除后没有聊天记录，创建一个新的空聊天
+              const newChat = {
+                title: '未命名',
+                messages: [],
+                mainStructure: null,
+                currentNodeIndexes: {
+                  node1: 1,
+                  node2: 1,
+                  node3: 1,
+                  node4: 1,
+                }
+              };
+              setChatHistories([newChat]);
+              setCurrentChatIndex(0);
               setMessages([]);
+            } else if (currentChatIndex === index) {
+              // 如果删除的是当前聊天，切换到最后一个聊天
+              const newIndex = updatedHistories.length - 1;
+              setCurrentChatIndex(newIndex);
+              setMessages(updatedHistories[newIndex].messages || []);
             } else if (currentChatIndex > index) {
+              // 如果删除的聊天在当前聊天之前，更新索引
               setCurrentChatIndex(currentChatIndex - 1);
             }
           }}

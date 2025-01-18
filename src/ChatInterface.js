@@ -62,7 +62,8 @@ import {
   createNewConfig,
   saveConfigurations,
   saveSelectedConfig,
-  editConfig
+  editConfig,
+  validateConfigAndApi
 } from './services/configurationService';
 
 /**
@@ -225,19 +226,37 @@ export default function ChatInterface() {
     const storedCurrentChatIndex = localStorage.getItem('currentChatIndex');
     if (storedCurrentChatIndex !== null) {
       const index = parseInt(storedCurrentChatIndex, 10);
-      setCurrentChatIndex(index);
+      if (index >= 0 && index < histories.length) {
+        setCurrentChatIndex(index);
 
-      // 恢复当前聊天的状态
-      const currentHistory = histories[index];
-      if (currentHistory) {
-        setMessages(currentHistory.messages || []);
-        setMainStructure(currentHistory.mainStructure || null);
-        setCurrentNodeIndexes(currentHistory.currentNodeIndexes || {
-          node1: 1,
-          node2: 1,
-          node3: 1,
-          node4: 1,
-        });
+        // 恢复当前聊天的状态
+        const currentHistory = histories[index];
+        if (currentHistory) {
+          setMessages(currentHistory.messages || []);
+          setMainStructure(currentHistory.mainStructure || null);
+          setCurrentNodeIndexes(currentHistory.currentNodeIndexes || {
+            node1: 1,
+            node2: 1,
+            node3: 1,
+            node4: 1,
+          });
+          setSelectedConfig(currentHistory.selectedConfig || null);
+        }
+      } else {
+        // 如果索引无效，重置为 0
+        setCurrentChatIndex(0);
+        if (histories.length > 0) {
+          const firstHistory = histories[0];
+          setMessages(firstHistory.messages || []);
+          setMainStructure(firstHistory.mainStructure || null);
+          setCurrentNodeIndexes(firstHistory.currentNodeIndexes || {
+            node1: 1,
+            node2: 1,
+            node3: 1,
+            node4: 1,
+          });
+          setSelectedConfig(firstHistory.selectedConfig || null);
+        }
       }
     }
 
@@ -255,8 +274,8 @@ export default function ChatInterface() {
   }, []);
 
   useEffect(() => {
-    saveChatHistoriesToStorage(chatHistories);
-    if (currentChatIndex !== null) {
+    if (chatHistories.length > 0 && currentChatIndex !== null) {
+      saveChatHistoriesToStorage(chatHistories);
       saveCurrentChatIndex(currentChatIndex);
     }
   }, [chatHistories, currentChatIndex]);
@@ -299,18 +318,27 @@ export default function ChatInterface() {
   const handleSubmit = async (e) => {
     e.preventDefault();
     if (!input.trim()) return;
-    if (!selectedConfig) {
-      alert('请先选择一个配置项！');
+    
+    // 使用全局验证函数，显示弹框提示
+    const validation = validateConfigAndApi({ selectedConfig, apiKey, apiUrl, showAlert: true });
+    if (!validation.isValid) {
+      setError(validation.error);
       return;
     }
-    setError('');
 
-    const newUserMessage = createUserMessage(input, selectedConfig);
-    setMessages((prev) => [...prev, newUserMessage]);
-    setInput('');
+    setError('');
     setIsLoading(true);
+    setIsGenerating(false);
+    setIsFinished(false);
+    setIsAdjusting(false);
 
     try {
+      // 创建并添加用户消息
+      const newUserMessage = createUserMessage(input, selectedConfig);
+      setMessages((prev) => [...prev, newUserMessage]);
+      setInput('');
+
+      // 生成主结构
       const { functionResult } = await generateNewMainStructure(
         apiUrl,
         apiKey,
@@ -319,42 +347,73 @@ export default function ChatInterface() {
         selectedConfig
       );
 
-      if (functionResult) {
-        setMainStructure(functionResult);
-
-        const assistantContent =
-          `${selectedConfig.terms.node1}:\n` + JSON.stringify(functionResult, null, 2);
-
-        const newAssistantMessage = createAssistantMessage(
-          assistantContent,
-          'mainStructure',
-          functionResult,
-          selectedConfig
-        );
-
-        setMessages((prev) => {
-          const updatedMessages = [...prev, newAssistantMessage];
-          const newHistory = saveChatHistory(
-            updatedMessages,
-            functionResult,
-            currentNodeIndexes,
-            selectedConfig
-          );
-          setChatHistories((prevHistories) => {
-            const updated = [...prevHistories];
-            updated[currentChatIndex] = newHistory;
-            return updated;
-          });
-          return updatedMessages;
-        });
-      } else {
+      if (!functionResult) {
         throw new Error('AI 返回的数据格式有误，请重试。');
       }
+
+      // 更新主结构
+      setMainStructure(functionResult);
+
+      // 创建并添加助手消息
+      const assistantContent = `${selectedConfig.terms.node1}:\n${JSON.stringify(functionResult, null, 2)}`;
+      const newAssistantMessage = createAssistantMessage(
+        assistantContent,
+        'mainStructure',
+        functionResult,
+        selectedConfig
+      );
+
+      // 更新消息和聊天历史
+      setMessages((prev) => {
+        const updatedMessages = [...prev, newAssistantMessage];
+        const newHistory = saveChatHistory(
+          updatedMessages,
+          functionResult,
+          currentNodeIndexes,
+          selectedConfig
+        );
+        
+        // 更新聊天历史
+        setChatHistories((prevHistories) => {
+          const updated = [...prevHistories];
+          updated[currentChatIndex] = newHistory;
+          return updated;
+        });
+
+        return updatedMessages;
+      });
+
+      // 重置节点索引
+      setCurrentNodeIndexes({
+        node1: 1,
+        node2: 1,
+        node3: 1,
+        node4: 1,
+      });
+
     } catch (error) {
       console.error('Error:', error);
-      setError(`发生错误: ${error.message}。请重试。`);
+      setError(`发生错误: ${error.message}`);
+      setMessages((prev) => {
+        const newHistory = saveChatHistory(
+          prev,
+          mainStructure,
+          currentNodeIndexes,
+          selectedConfig
+        );
+        setChatHistories((prevHistories) => {
+          const updated = [...prevHistories];
+          updated[currentChatIndex] = newHistory;
+          return updated;
+        });
+        return prev;
+      });
     } finally {
       setIsLoading(false);
+      await new Promise(resolve => setTimeout(resolve, 100)); // 确保滚动到底部
+      if (scrollAreaRef.current) {
+        scrollAreaRef.current.scrollTop = scrollAreaRef.current.scrollHeight;
+      }
     }
   };
 
@@ -371,16 +430,33 @@ export default function ChatInterface() {
   };
 
   const handleAdjustSubmit = async (message, adjustedContent, nodeIndexes = null) => {
-    try {
-      setIsAdjusting(true);
-      const config = message.selectedConfig || selectedConfig;
+    if (!adjustedContent.trim()) {
+      const error = '调整内容不能为空';
+      alert(error);
+      setError(error);
+      return;
+    }
 
+    // 使用全局验证函数，显示弹框提示
+    const validation = validateConfigAndApi({ selectedConfig, apiKey, apiUrl, showAlert: true });
+    if (!validation.isValid) {
+      setError(validation.error);
+      return;
+    }
+
+    try {
+      setError('');
+      setIsAdjusting(true);
+      setIsGenerating(false);
+      setIsFinished(false);
+      
+      const config = message.selectedConfig || selectedConfig;
       if (!config) {
-        setError('配置未定义');
-        return;
+        throw new Error('配置未定义');
       }
 
       if (message.type === 'mainStructure') {
+        // 调整主结构
         const { functionResult } = await adjustMainStructure(
           apiUrl,
           apiKey,
@@ -390,9 +466,11 @@ export default function ChatInterface() {
           config
         );
 
-        const assistantContent =
-          `${config.terms.node1}:\n` + JSON.stringify(functionResult, null, 2);
+        if (!functionResult) {
+          throw new Error('调整主结构失败，请重试');
+        }
 
+        const assistantContent = `${config.terms.node1}:\n${JSON.stringify(functionResult, null, 2)}`;
         const newAssistantMessage = createAssistantMessage(
           assistantContent,
           'mainStructure',
@@ -400,6 +478,7 @@ export default function ChatInterface() {
           config
         );
 
+        // 更新消息和状态
         setMessages((prev) => {
           const updatedMessages = [...prev, newAssistantMessage];
           const newHistory = saveChatHistory(
@@ -417,7 +496,9 @@ export default function ChatInterface() {
         });
 
         setMainStructure(functionResult);
+        
       } else if (message.type === config.terms.sectionDetailType) {
+        // 调整详细内容
         const { functionResult } = await adjustDetail(
           apiUrl,
           apiKey,
@@ -430,6 +511,10 @@ export default function ChatInterface() {
           config
         );
 
+        if (!functionResult) {
+          throw new Error('调整详细内容失败，请重试');
+        }
+
         const content = renderDetailContent(
           functionResult,
           nodeIndexes,
@@ -438,6 +523,7 @@ export default function ChatInterface() {
           config
         );
 
+        // 更新消息
         setMessages((prev) => {
           const updatedMessages = prev.map((msg) => {
             if (
@@ -455,6 +541,7 @@ export default function ChatInterface() {
             return msg;
           });
 
+          // 保存更新后的历史
           const newHistory = saveChatHistory(
             updatedMessages,
             mainStructure,
@@ -472,15 +559,27 @@ export default function ChatInterface() {
       }
 
       setAdjustedContent('');
+      
     } catch (error) {
       console.error('Error:', error);
-      setError(`发生错误: ${error.message}。请重试。`);
+      setError(`调整失败: ${error.message}`);
     } finally {
       setIsAdjusting(false);
+      await new Promise(resolve => setTimeout(resolve, 100)); // 确保滚动到底部
+      if (scrollAreaRef.current) {
+        scrollAreaRef.current.scrollTop = scrollAreaRef.current.scrollHeight;
+      }
     }
   };
 
   const handleContinue = async (startNodeIndexes) => {
+    // 使用全局验证函数，显示弹框提示
+    const validation = validateConfigAndApi({ selectedConfig, apiKey, apiUrl, showAlert: true });
+    if (!validation.isValid) {
+      setError(validation.error);
+      return;
+    }
+
     try {
       setIsFinished(false);
       setIsGenerating(true);
@@ -512,6 +611,7 @@ export default function ChatInterface() {
   };
 
   const startNewChat = () => {
+    // 保存当前聊天的状态
     if (messages.length > 0) {
       const newHistory = saveChatHistory(messages, mainStructure, currentNodeIndexes, selectedConfig);
       setChatHistories((prev) => {
@@ -521,8 +621,11 @@ export default function ChatInterface() {
       });
     }
 
+    // 创建新的聊天
     const newChat = createNewChat(selectedConfig);
     setChatHistories((prev) => [...prev, newChat]);
+    
+    // 重置所有状态
     setMessages([]);
     setMainStructure(null);
     setCurrentNodeIndexes({
@@ -531,10 +634,29 @@ export default function ChatInterface() {
       node3: 1,
       node4: 1,
     });
+    setIsGenerating(false);
+    setIsFinished(false);
+    setIsAdjusting(false);
+    setError('');
+    setAdjustedContent('');
+    setInput('');
+    
+    // 设置新聊天为当前聊天
     setCurrentChatIndex(chatHistories.length);
   };
 
   const handleChatClick = (index) => {
+    // 保存当前聊天的状态
+    if (currentChatIndex !== null && messages.length > 0) {
+      const newHistory = saveChatHistory(messages, mainStructure, currentNodeIndexes, selectedConfig);
+      setChatHistories((prev) => {
+        const updated = [...prev];
+        updated[currentChatIndex] = newHistory;
+        return updated;
+      });
+    }
+
+    // 加载目标聊天的状态
     const chatHistory = chatHistories[index];
     if (chatHistory) {
       setMessages(chatHistory.messages || []);
@@ -546,7 +668,15 @@ export default function ChatInterface() {
         node3: 1,
         node4: 1,
       });
-      setSelectedConfig(chatHistory.selectedConfig || null);
+      setSelectedConfig(chatHistory.selectedConfig || selectedConfig);
+      
+      // 重置生成状态
+      setIsGenerating(false);
+      setIsFinished(false);
+      setIsAdjusting(false);
+      setError('');
+      setAdjustedContent('');
+      setInput('');
     }
   };
 
@@ -570,16 +700,34 @@ export default function ChatInterface() {
           const { chatHistories: importedHistories, configurations: importedConfigs, selectedConfig: importedSelected } = 
             await importChatData(e.target.result);
           
-          setChatHistories(importedHistories);
+          // 更新配置相关状态
           setConfigurations(importedConfigs);
           setSelectedConfig(importedSelected);
-          setMessages([]);
-          setMainStructure(null);
-          setCurrentChatIndex(null);
-          
-          saveChatHistoriesToStorage(importedHistories);
           saveConfigurations(importedConfigs);
           saveSelectedConfig(importedSelected);
+          
+          // 更新聊天相关状态
+          setChatHistories(importedHistories);
+          setMessages([]);
+          setMainStructure(null);
+          setCurrentNodeIndexes({
+            node1: 1,
+            node2: 1,
+            node3: 1,
+            node4: 1,
+          });
+          setCurrentChatIndex(null);
+          
+          // 重置其他状态
+          setIsGenerating(false);
+          setIsFinished(false);
+          setIsAdjusting(false);
+          setError('');
+          setAdjustedContent('');
+          setInput('');
+          
+          // 保存到本地存储
+          saveChatHistoriesToStorage(importedHistories);
           localStorage.removeItem('currentChatIndex');
           
           alert('导入成功！');
