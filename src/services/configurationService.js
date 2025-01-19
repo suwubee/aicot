@@ -136,19 +136,64 @@ export const saveConfigurations = (configurations) => {
 };
 
 /**
- * 保存选中的配置项到本地存储
+ * 验证配置切换
+ * @param {Object} newConfig - 新的配置
+ * @param {Array} messages - 消息列表
+ * @returns {Object} 验证结果，包含是否可以切换和提示信息
+ */
+export function validateConfigurationChange(newConfig, messages) {
+  // 如果没有消息列表，允许切换配置
+  if (!messages || !Array.isArray(messages)) {
+    return {
+      canChange: true,
+      message: ''
+    };
+  }
+
+  // 检查消息列表中是否已经有主结构消息
+  const mainStructureMessage = messages.find(message => 
+    message.type === 'mainStructure'
+  );
+
+  // 如果没有主结构消息，允许切换配置
+  if (!mainStructureMessage) {
+    return {
+      canChange: true,
+      message: ''
+    };
+  }
+
+  // 如果存在主结构消息且其使用了动态配置，且要切换到非动态配置，返回警告信息
+  if (mainStructureMessage.selectedConfig?.isDynamic && !newConfig?.isDynamic) {
+    return {
+      canChange: false,
+      message: '当前消息列表使用的是动态思维链配置，切换配置可能会影响当前的生成结果。'
+    };
+  }
+
+  // 如果存在主结构消息但使用的是静态配置，不允许切换配置
+  if (mainStructureMessage && !mainStructureMessage.selectedConfig?.isDynamic) {
+    return {
+      canChange: false,
+      message: '已生成的主结构使用了固定配置，无法切换到其他配置。'
+    };
+  }
+
+  return {
+    canChange: true,
+    message: ''
+  };
+}
+
+/**
+ * 保存选中的配置
  * @param {Object} config - 选中的配置项
  */
-export const saveSelectedConfig = (config) => {
-  try {
-    // 不保存系统配置
-    if (config && !config.isSystemConfig) {
-      localStorage.setItem('selectedConfig', JSON.stringify(config));
-    }
-  } catch (error) {
-    console.error('保存选中配置时发生错误:', error);
+export function saveSelectedConfig(config) {
+  if (!config?.isSystemConfig) {
+    localStorage.setItem('selectedConfigId', config.id);
   }
-};
+}
 
 /**
  * 编辑配置项

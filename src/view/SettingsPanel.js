@@ -1,4 +1,5 @@
 import React from 'react';
+import { validateConfigurationChange, saveSelectedConfig } from '../services/configurationService';
 
 const SettingsPanel = ({
   apiUrl,
@@ -18,7 +19,39 @@ const SettingsPanel = ({
   handleImportClick,
   handleImport,
   fileInputRef,
+  messages,
 }) => {
+  // 检查是否有主结构消息或非空消息
+  const hasContent = messages?.some(message => 
+    message.type === 'mainStructure' || 
+    (message.content && message.content.trim() !== '')
+  );
+  
+  // 检查是否使用动态配置
+  const isDynamicConfig = selectedConfig?.isDynamic;
+
+  const handleConfigChangeInternal = (event) => {
+    const selectedId = event.target.value;
+    const newConfig = configurations.find((config) => config.id === selectedId);
+    
+    // 验证配置切换
+    const validationResult = validateConfigurationChange(newConfig, messages);
+    
+    if (!validationResult.canChange) {
+      // 如果不能切换，显示提示信息
+      alert(validationResult.message);
+      // 重置选择框的值为当前配置
+      event.target.value = selectedConfig?.id || '';
+      return;
+    }
+
+    // 更新配置
+    handleConfigChange(newConfig);
+    
+    // 保存配置
+    saveSelectedConfig(newConfig);
+  };
+
   return (
     <div className="flex-1 overflow-y-auto p-4">
       {/* 配置管理部分 */}
@@ -27,8 +60,10 @@ const SettingsPanel = ({
         <select
           id="selectedConfig"
           value={selectedConfig ? selectedConfig.id : ''}
-          onChange={(e) => handleConfigChange(e.target.value)}
-          className="w-full p-2 border rounded focus:outline-none focus:ring-2 focus:ring-blue-500"
+          onChange={handleConfigChangeInternal}
+          disabled={hasContent}
+          className={`w-full p-2 border rounded focus:outline-none focus:ring-2 focus:ring-blue-500 
+            ${hasContent ? 'bg-gray-100 cursor-not-allowed' : ''}`}
         >
           {configurations.map((config) => (
             <option key={config.id} value={config.id}>
@@ -36,6 +71,13 @@ const SettingsPanel = ({
             </option>
           ))}
         </select>
+        {hasContent && (
+          <p className="text-sm text-gray-500 mt-1">
+            {isDynamicConfig 
+              ? '已使用动态思维链配置开始对话，如需使用其他配置，请开始新的对话。'
+              : '已使用固定配置开始对话，如需使用其他配置，请开始新的对话。'}
+          </p>
+        )}
         <ul>
           {configurations.map((config) => (
             <li key={config.id} className="flex items-center justify-between w-full p-2 rounded">

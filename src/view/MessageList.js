@@ -393,7 +393,8 @@ export default function MessageList({
                       ) : (
                         <button
                           onClick={() => {
-                            const firstComplexItem = messageConfig.terms.node2ComplexItems[0];
+                            const currentConfig = message.selectedConfig || messageConfig;
+                            const firstComplexItem = currentConfig.terms.node2ComplexItems[0];
                             if (!firstComplexItem) {
                               return;
                             }
@@ -404,7 +405,7 @@ export default function MessageList({
                               node4: 1
                             };
                             
-                            handleContinueFromMessage(startNodeIndexes);
+                            handleContinueFromMessage(startNodeIndexes, currentConfig);
                           }}
                           className="px-4 py-2 bg-green-500 text-white rounded hover:bg-green-600 focus:outline-none"
                         >
@@ -441,12 +442,14 @@ export default function MessageList({
                   ) : (
                     <button
                       className="px-4 py-2 bg-green-500 text-white rounded hover:bg-green-600 focus:outline-none"
-                      onClick={() =>
+                      onClick={() => {
+                        const currentConfig = message.selectedConfig || messageConfig;
                         handleContinueFromMessage({
+                          node2Name: messageContent.nodeIndexes.node2Name,
                           node3: messageContent.nodeIndexes.node3,
                           node4: messageContent.nodeIndexes.node4,
-                        })
-                      }
+                        }, currentConfig);
+                      }}
                     >
                       继续
                     </button>

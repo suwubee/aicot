@@ -618,16 +618,20 @@ ${userContent}
    请确保为node2数组中的每一个步骤都提供描述，不能遗漏任何步骤。
 
 3. systemRolePrompt（系统角色提示词）:
-   定义AI在该业务场景中的专业角色，包括：
-   - 专业身份：说明在该领域的专业背景
-   - 核心职责：具体的工作职责
-   - 工作方法：采用的专业方法论
-   - 输出标准：确保输出的专业性和可操作性
+   根据业务场景定义AI的专业角色，包括：
+   - 专业身份：在该业务领域的专业背景和经验
+   - 核心职责：在该业务场景中需要完成的具体工作
+   - 工作方法：采用的专业方法论和工作流程
+   - 输出标准：确保输出的专业性、可操作性和完整性
+   
+4. systemRolePrompt 必须根据具体业务场景定制，不能使用通用模板，需要体现该领域的专业性和特点。
 
 请特别注意：
 1. node2中的每个步骤都必须在fixedDescriptions中有对应的详细描述
 2. 所有描述必须专业、具体、可操作
 3. 确保生成的配置完整且结构合理
+
+4. systemRolePrompt必须完全根据业务场景定制，体现专业性
 
 参考示例:
 {
@@ -690,8 +694,9 @@ ${userContent}
     "id": "1728716438680",
     "name": "思维过程设计"
 }
-
-`;
+`
+.replace(/\s+/g, ' ')
+.trim();
 
   const messages = [
     {
@@ -715,12 +720,12 @@ ${userContent}
               node2: { 
                 type: 'array',
                 items: { type: 'string' },
-                description: '8-12个关键步骤数组，按照时间或逻辑顺序排列'
+                description: '8-12个关键步骤数组，按照时间或逻辑顺序排列，通常是当前流程的核心步骤'
               },
               node2ComplexItems: {
                 type: 'array',
                 items: { type: 'string' },
-                description: '从node2中选择5-8个最重要的步骤，这些步骤需要详细展开'
+                description: '从node2中选择需要详细展开的重要步骤'
               },
               node3: { type: 'string', description: '步骤（保持默认值）' },
               node4: { type: 'string', description: '子步骤（保持默认值）' },
@@ -746,7 +751,7 @@ ${userContent}
           },
           systemRolePrompt: {
             type: 'string',
-            description: '定义AI在该业务场景中的角色，包括专业身份、任务目标、工作方法等'
+            description: '根据业务场景定义AI的专业角色，包括专业身份、核心职责、工作方法和输出标准'
           }
         },
         required: ['terms', 'fixedDescriptions', 'systemRolePrompt']
@@ -819,8 +824,8 @@ function validateDynamicConfig(config) {
   }
 
   // 检查 node2 数组长度
-  if (config.terms.node2.length < 8 || config.terms.node2.length > 12) {
-    throw new Error('node2 数组长度必须在 8-12 之间');
+  if (config.terms.node2.length < 2 || config.terms.node2.length > 36) {
+    throw new Error('node2 数组长度必须大于2');
   }
 
   // 检查 node2ComplexItems 中的项必须存在于 node2 中
