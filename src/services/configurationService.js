@@ -52,22 +52,8 @@ export const loadConfigurations = (defaultConfig) => {
     }
   }
 
-  if (parsedConfigs && parsedConfigs.length > 0) {
-    return [dynamicConfig, ...parsedConfigs];
-  } else {
-    // 如果没有存储的配置，使用默认配置
-    const defaultConfigurations = [
-      {
-        id: 'default',
-        name: '示例配置',
-        terms: defaultConfig.terms,
-        fixedDescriptions: defaultConfig.fixedDescriptions,
-        systemRolePrompt: defaultConfig.systemRolePrompt,
-      },
-    ];
-    localStorage.setItem('configurations', JSON.stringify(defaultConfigurations));
-    return [dynamicConfig, ...defaultConfigurations];
-  }
+  // 始终将动态思维链作为第一个配置项
+  return [dynamicConfig, ...parsedConfigs];
 };
 
 /**
@@ -127,7 +113,7 @@ export const createNewConfig = (defaultConfig) => {
  */
 export const saveConfigurations = (configurations) => {
   try {
-    // 过滤掉系统配置
+    // 过滤掉系统配置（包括动态思维链）后再保存
     const configsToSave = configurations.filter(config => config && !config.isSystemConfig);
     localStorage.setItem('configurations', JSON.stringify(configsToSave));
   } catch (error) {

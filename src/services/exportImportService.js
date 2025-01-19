@@ -1,5 +1,31 @@
 // exportImportService.js
 
+// 创建动态思维链配置的公共函数
+const createDynamicConfig = () => ({
+  id: 'dynamic',
+  name: '动态思维链',
+  isDynamic: true,
+  isSystemConfig: true,
+  terms: {
+    node1: '',
+    node2: [],
+    node2ComplexItems: [],
+    node3: '步骤',
+    node4: '子步骤',
+    node5: '内容',
+    mainStructure: '流程设计',
+    title: '标题',
+    outline: '大纲',
+    content: '内容',
+    detail: '详细内容',
+    type: '类型',
+    detailFlag: 'detail',
+    sectionDetailType: 'sectionDetail'
+  },
+  fixedDescriptions: {},
+  systemRolePrompt: ''
+});
+
 /**
  * 导出聊天数据
  * @param {Array} chatHistories - 聊天历史记录列表
@@ -26,10 +52,14 @@ export const exportChatData = (chatHistories, configurations, selectedConfig) =>
 export const importChatData = (jsonString) => {
   try {
     const importedData = JSON.parse(jsonString);
+    // 过滤掉可能存在的动态思维链配置
+    const configurations = (importedData.configurations || []).filter(config => !config.isSystemConfig);
+    // 创建动态思维链配置
+    const dynamicConfig = createDynamicConfig();
     return {
       chatHistories: importedData.chatHistories || [],
-      configurations: importedData.configurations || [],
-      selectedConfig: importedData.selectedConfig || null,
+      configurations: [dynamicConfig, ...configurations],
+      selectedConfig: importedData.selectedConfig || dynamicConfig,
     };
   } catch (error) {
     throw new Error('导入失败，请确保文件格式正确');
@@ -60,9 +90,13 @@ export const exportConfigurations = (configurations, selectedConfig) => {
 export const importConfigurations = (jsonString) => {
   try {
     const importedData = JSON.parse(jsonString);
+    // 过滤掉可能存在的动态思维链配置
+    const configurations = importedData.configurations.filter(config => !config.isSystemConfig);
+    // 创建动态思维链配置
+    const dynamicConfig = createDynamicConfig();
     return {
-      configurations: importedData.configurations,
-      selectedConfig: importedData.selectedConfig,
+      configurations: [dynamicConfig, ...configurations],
+      selectedConfig: importedData.selectedConfig || dynamicConfig,
     };
   } catch (error) {
     throw new Error('导入失败，请确保文件格式正确');
