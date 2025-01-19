@@ -1,25 +1,221 @@
 // api.js
 // 通用的 AI API 调用函数
-export async function callAIAPI(apiUrl, apiKey, model, messages, functions, function_call) {
-  let body;
-  if (model.startsWith('o1-')) {
-    // 如果是 o1- 开头的模型,去掉 functions 和 function_call
-    body = JSON.stringify({
-      model: model,
-      messages: messages,
-      temperature: 1,
-      max_tokens: 8000,
-    });
-  } else {
-    body = JSON.stringify({
-      model: model,
-      messages: messages,
-      functions: functions,
-      function_call: function_call,
-      temperature: 0.5,
-      max_tokens: 8000,
-    });
+
+// 模型配置管理器
+const ModelConfigManager = {
+  // 模型类型定义
+  MODEL_TYPES: {
+    O1: 'o1',
+    GPT: 'gpt',
+    DEEPSEEK: 'deepseek',
+    // 后续可以在这里添加更多模型类型
+  },
+
+  // 获取模型类型
+  getModelType(model) {
+    if (model.startsWith('o1-')) return this.MODEL_TYPES.O1;
+    if (model.startsWith('deepseek-')) return this.MODEL_TYPES.DEEPSEEK;
+    return this.MODEL_TYPES.GPT;
+  },
+
+  // 构建请求体
+  buildRequestBody(model, messages, functions, function_call) {
+    const modelType = this.getModelType(model);
+    
+    // 压缩消息内容
+    const compressedMessages = messages.map(msg => ({
+      ...msg,
+      content: msg.content.replace(/\s+/g, ' ').trim()
+    }));
+
+    // 压缩函数定义
+    const compressedFunctions = functions ? functions.map(fn => ({
+      ...fn,
+      description: fn.description.replace(/\s+/g, ' ').trim()
+    })) : undefined;
+    
+    switch (modelType) {
+      case this.MODEL_TYPES.O1:
+        return {
+          model,
+          messages: compressedMessages.map(msg => ({
+            role: msg.role === 'system' ? 'user' : msg.role,
+            content: msg.content
+          })),
+          temperature: 1,
+          max_tokens: 8000,
+        };
+      
+      case this.MODEL_TYPES.DEEPSEEK:
+        return {
+          model,
+          messages: compressedMessages,
+          response_format: {
+            type: 'json_object'
+          },
+          temperature: 0.5,
+          max_tokens: 8000,
+        };
+      
+      case this.MODEL_TYPES.GPT:
+      default:
+        return {
+          model,
+          messages: compressedMessages,
+          functions: compressedFunctions,
+          function_call,
+          temperature: 0.5,
+          max_tokens: 8000,
+        };
+    }
+  },
+
+  // 处理响应数据
+  handleResponse(model, response, terms = null) {
+    const modelType = this.getModelType(model);
+    const message = response.choices[0].message;
+
+    switch (modelType) {
+      case this.MODEL_TYPES.O1:
+        try {
+          // 如果返回的是对象，直接使用
+          if (typeof message.content === 'object') {
+            return { functionResult: message.content };
+          }
+
+          // 尝试从 content 中提取 JSON
+          const jsonMatch = message.content.match(/```json\s*([\s\S]*?)\s*```/);
+          if (!jsonMatch) {
+            // 如果没有 JSON 标记，尝试直接解析整个 content
+            try {
+              const parsedContent = JSON.parse(message.content);
+              // 如果是动态思维链配置，直接返回
+              if (parsedContent.terms && parsedContent.fixedDescriptions) {
+                return { functionResult: parsedContent };
+              }
+              // 如果是主结构内容，需要处理 description 对象
+              const processedContent = this._processMainStructureContent(parsedContent);
+              return { functionResult: processedContent };
+            } catch {
+              throw new Error('AI 返回的数据中未找到有效的 JSON。');
+            }
+          }
+
+          // 提取并解析 JSON
+          const jsonStr = jsonMatch[1].replace(/\n/g, ' ').replace(/\\"/g, '"');
+          const parsedJson = JSON.parse(jsonStr);
+          // 如果是动态思维链配置，直接返回
+          if (parsedJson.terms && parsedJson.fixedDescriptions) {
+            return { functionResult: parsedJson };
+          }
+          // 如果是主结构内容，需要处理 description 对象
+          const processedJson = this._processMainStructureContent(parsedJson);
+          return { functionResult: processedJson };
+        } catch (error) {
+          console.error('处理 o1 模型响应时出错:', error);
+          throw new Error(`AI 返回的数据格式不正确: ${error.message}`);
+        }
+
+      case this.MODEL_TYPES.DEEPSEEK:
+        try {
+          if (!message.content) {
+            throw new Error('DeepSeek 返回的数据为空');
+          }
+          const parsedContent = JSON.parse(message.content);
+          // 如果是动态思维链配置，直接返回
+          if (parsedContent.terms && parsedContent.fixedDescriptions) {
+            return { functionResult: parsedContent };
+          }
+          // 如果是主结构内容，需要处理 description 对象
+          const processedContent = this._processMainStructureContent(parsedContent);
+          return { functionResult: processedContent };
+        } catch (error) {
+          console.error('处理 DeepSeek 模型响应时出错:', error);
+          throw new Error(`DeepSeek 返回的数据格式不正确: ${error.message}`);
+        }
+
+      case this.MODEL_TYPES.GPT:
+      default:
+        if (!message.function_call || !message.function_call.arguments) {
+          throw new Error('AI 返回的数据不包含 function_call 信息。');
+        }
+        return { functionResult: JSON.parse(message.function_call.arguments) };
+    }
+  },
+
+  // 处理主结构内容中的 description 对象
+  _processMainStructureContent(content) {
+    const processNode = (node) => {
+      if (Array.isArray(node)) {
+        return node.map(item => {
+          if (item.description) {
+            const processedItem = { ...item };
+            processedItem.content = typeof item.description === 'object' ? 
+              Object.entries(item.description)
+                .map(([key, value]) => {
+                  if (Array.isArray(value)) {
+                    return `${key}:\n${value.map(v => `- ${v}`).join('\n')}`;
+                  }
+                  return `${key}: ${value}`;
+                })
+                .join('\n') :
+              item.description;
+            delete processedItem.description;
+            return processedItem;
+          }
+          return item;
+        });
+      } else if (typeof node === 'object' && node !== null) {
+        if (node.description) {
+          // 如果节点有 description 和其他属性
+          const processedNode = { ...node };
+          if (typeof node.description === 'object') {
+            processedNode.content = Object.entries(node.description)
+              .map(([key, value]) => {
+                if (Array.isArray(value)) {
+                  return `${key}:\n${value.map(v => `- ${v}`).join('\n')}`;
+                }
+                return `${key}: ${value}`;
+              })
+              .join('\n');
+          } else {
+            processedNode.content = node.description;
+          }
+          delete processedNode.description;
+          
+          // 处理其他属性
+          for (const [key, value] of Object.entries(processedNode)) {
+            if (key !== 'content' && typeof value === 'object' && value !== null) {
+              processedNode[key] = processNode(value);
+            }
+          }
+          return processedNode;
+        } else if (Object.keys(node).length > 0) {
+          const processedObj = {};
+          for (const [key, value] of Object.entries(node)) {
+            processedObj[key] = processNode(value);
+          }
+          return processedObj;
+        }
+      }
+      return node;
+    };
+
+    // 处理主结构内容
+    const result = {};
+    for (const [key, value] of Object.entries(content)) {
+      if (typeof value === 'object' && value !== null) {
+        result[key] = processNode(value);
+      } else {
+        result[key] = value;
+      }
+    }
+    return result;
   }
+};
+
+export async function callAIAPI(apiUrl, apiKey, model, messages, functions, function_call) {
+  const body = JSON.stringify(ModelConfigManager.buildRequestBody(model, messages, functions, function_call));
 
   const response = await fetch(apiUrl, {
     method: 'POST',
@@ -35,61 +231,83 @@ export async function callAIAPI(apiUrl, apiKey, model, messages, functions, func
   }
 
   const data = await response.json();
-  const message = data.choices[0].message;
-
-  if (model.startsWith('o1-')) {
-    // 对于 o1 等模型,需要从 message.content 中提取 JSON
-    const jsonMatch = message.content.match(/```json[\s\S]*?\n([\s\S]*?)\n```/);
-    if (jsonMatch) {
-      try {
-        // 将匹配到的 JSON 字符串中的换行符替换为空格,并替换掉多余的引号
-        const jsonStr = jsonMatch[1].replace(/\n/g, ' ').replace(/\\"/g, '"');
-        const functionResult = JSON.parse(jsonStr);
-        return { functionResult };
-      } catch (error) {
-        console.error('提取 JSON 时出错:', error);
-        throw new Error('AI 返回的数据格式不正确。');
-      }
-    } else {
-      throw new Error('AI 返回的数据中未找到 JSON。');
-    }
-  } else {
-    // 检查是否有函数调用结果
-    if (message.function_call && message.function_call.arguments) {
-      const functionResult = JSON.parse(message.function_call.arguments);
-      return { functionResult };
-    } else {
-      throw new Error('AI 返回的数据不包含 function_call 信息。');
-    }
-  }
+  return ModelConfigManager.handleResponse(model, data);
 }
 
 // 新增函数,根据模型类型构建消息数组
 function buildMessages(model, systemRolePrompt, userPrompt, functionParams) {
-  if (model.startsWith('o1-')) {
-    // 如果是 o1- 开头的模型,将 systemRolePrompt 放在 userPrompt 前面,并将 functionParams 转化为提示词
-    let functionPrompt = '';
-    if (functionParams) {
-      functionPrompt = `请根据以下要求生成内容:\n${JSON.stringify(functionParams, null, 2)}`;
-    }
-    return [
-      {
-        role: 'user',
-        content: `${systemRolePrompt}\n\n${userPrompt}\n\n${functionPrompt}`,
-      },
-    ];
-  } else {
-    // 其他模型保持原有的消息格式
-    return [
-      {
-        role: 'system',
-        content: systemRolePrompt,
-      },
-      {
-        role: 'user',
-        content: userPrompt,
-      },
-    ];
+  const modelType = ModelConfigManager.getModelType(model);
+
+  switch (modelType) {
+    case ModelConfigManager.MODEL_TYPES.O1:
+      // 如果是 o1- 开头的模型,将 systemRolePrompt 放在 userPrompt 前面,并将 functionParams 转化为提示词
+      let functionPrompt = '';
+      if (functionParams) {
+        functionPrompt = `请根据以下要求生成内容:\n${JSON.stringify(functionParams, null, 2)}`;
+      }
+      return [
+        {
+          role: 'user',
+          content: `${systemRolePrompt}\n\n${userPrompt}\n\n${functionPrompt}`,
+        },
+      ];
+
+    case ModelConfigManager.MODEL_TYPES.DEEPSEEK:
+      // DeepSeek 模型需要更明确的 JSON 格式指导
+      let deepseekPrompt = '';
+      if (functionParams) {
+        // 对于动态思维链配置生成，添加更明确的格式要求
+        if (functionParams.terms && functionParams.fixedDescriptions) {
+          deepseekPrompt = `
+请严格按照以下 JSON 格式要求输出内容。特别注意：
+1. fixedDescriptions 必须是一个对象，其中每个键对应 node2 数组中的一个步骤
+2. 每个步骤的描述必须是一个字符串，不能是对象或其他格式
+3. 描述内容要包含该步骤的目标、任务、注意事项和关联性，但这些内容要组织在一段文字中，而不是分开的字段
+
+示例格式：
+{
+  "terms": {
+    "node1": "流程名称",
+    "node2": ["步骤1", "步骤2"],
+    ...
+  },
+  "fixedDescriptions": {
+    "步骤1": "这是步骤1的详细描述，包含目标：xxx；任务：xxx；注意事项：xxx；关联性：xxx",
+    "步骤2": "这是步骤2的详细描述，包含目标：xxx；任务：xxx；注意事项：xxx；关联性：xxx"
+  },
+  ...
+}
+
+请按照以下参数要求生成内容：
+${JSON.stringify(functionParams, null, 2)}`;
+        } else {
+          deepseekPrompt = `请严格按照以下 JSON 格式要求输出内容：\n${JSON.stringify(functionParams, null, 2)}`;
+        }
+      }
+      return [
+        {
+          role: 'system',
+          content: systemRolePrompt
+        },
+        {
+          role: 'user',
+          content: `${userPrompt}\n\n${deepseekPrompt}`
+        }
+      ];
+
+    case ModelConfigManager.MODEL_TYPES.GPT:
+    default:
+      // 其他模型保持原有的消息格式
+      return [
+        {
+          role: 'system',
+          content: systemRolePrompt,
+        },
+        {
+          role: 'user',
+          content: userPrompt,
+        },
+      ];
   }
 }
 
@@ -759,36 +977,18 @@ ${userContent}
     }
   ];
 
-  // 保持原有的function_call和后续处理逻辑不变
   const function_call = { name: 'generate_dynamic_config' };
 
   try {
-    let config;
-    if (model.startsWith('o1-')) {
-      const data = await callAIAPI(apiUrl, apiKey, model, messages);
-      const jsonMatch = data.functionResult.match(/```json\n([\s\S]*?)\n```/);
-      if (jsonMatch) {
-        config = JSON.parse(jsonMatch[1]);
-      } else {
-        throw new Error('AI 返回的数据中未找到有效的配置文件');
-      }
-    } else {
-      const result = await callAIAPI(apiUrl, apiKey, model, messages, functions, function_call);
-      if (!result.functionResult) {
-        throw new Error('AI 返回的数据格式不正确');
-      }
-      
-      // 解析 function_call 的 arguments
-      if (typeof result.functionResult === 'string') {
-        config = JSON.parse(result.functionResult);
-      } else {
-        config = result.functionResult;
-      }
-    }
-
+    const result = await callAIAPI(apiUrl, apiKey, model, messages, functions, function_call);
+    
     // 验证配置
-    validateDynamicConfig(config);
-    return { functionResult: config };
+    if (result && result.functionResult) {
+      validateDynamicConfig(result.functionResult);
+      return result;
+    } else {
+      throw new Error('生成的配置数据无效');
+    }
   } catch (error) {
     console.error('生成动态配置失败:', error);
     throw new Error(`生成动态配置失败: ${error.message}`);

@@ -107,9 +107,10 @@ import defaultConfig from './config';
 
 const models = [
   { value: 'gpt-4o-mini', label: 'GPT-4O Mini' },
+  { value: 'gpt-4o-2024-11-20', label: 'GPT-4O (2024-11-12)' },
   { value: 'gpt-4o-2024-08-06', label: 'GPT-4O (2024-08-06)' },
   { value: 'o1-mini', label: 'o1-mini' },
-  { value: 'gpt-4o', label: 'GPT-4O' },
+  { value: 'deepseek-chat', label: 'DeepSeek-V3(极易出错不推荐)' },
 ];
 
 export default function ChatInterface() {
