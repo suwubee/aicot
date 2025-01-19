@@ -79,6 +79,66 @@ export const exportMarkdown = (messages, selectedConfig) => {
   try {
     let markdownContent = '';
     
+    // 首先找到最新的主结构消息
+    const mainStructureMessage = messages.findLast(message => message.type === 'mainStructure');
+    
+    // 如果存在主结构，先添加主结构内容
+    if (mainStructureMessage) {
+      const terms = selectedConfig.terms;
+      let mainStructureData;
+      
+      try {
+        mainStructureData = mainStructureMessage.data || JSON.parse(mainStructureMessage.content.slice(6));
+      } catch (error) {
+        console.warn('解析主结构数据失败:', error);
+        return;
+      }
+
+      if (mainStructureData && mainStructureData[terms.node1]) {
+        const design = mainStructureData[terms.node1];
+        
+        markdownContent += `# ${terms.node1}\n\n`;
+        
+        // 遍历所有node2项
+        terms.node2.forEach(node2Name => {
+          const node2Data = design[node2Name];
+          if (!node2Data) return;
+          
+          markdownContent += `## ${node2Name}\n\n`;
+          
+          if (terms.node2ComplexItems.includes(node2Name)) {
+            // 处理复杂项
+            if (Array.isArray(node2Data)) {
+              node2Data.forEach((item, index) => {
+                if (item[terms.title]) {
+                  markdownContent += `### ${item[terms.title]}\n\n`;
+                  if (Array.isArray(item[terms.content])) {
+                    item[terms.content].forEach(subItem => {
+                      markdownContent += `- ${subItem}\n`;
+                    });
+                    markdownContent += '\n';
+                  }
+                }
+              });
+            }
+          } else {
+            // 处理简单项
+            if (typeof node2Data === 'string') {
+              markdownContent += `${node2Data}\n\n`;
+            } else if (Array.isArray(node2Data)) {
+              node2Data.forEach(item => {
+                markdownContent += `- ${item}\n`;
+              });
+              markdownContent += '\n';
+            }
+          }
+        });
+        
+        markdownContent += '\n---\n\n';
+      }
+    }
+    
+    // 然后添加所有详细内容
     messages.forEach(message => {
       if (message.type === selectedConfig.terms.sectionDetailType) {
         if (!message.data || !message.data.nodeIndexes) {
@@ -86,11 +146,13 @@ export const exportMarkdown = (messages, selectedConfig) => {
           return;
         }
 
-        const title = message.data.标题 || message.data.title || '未命名章节';
+        const nodeIndexes = message.data.nodeIndexes;
+        const title = message.data.标题 || message.data.title || 
+                     `${nodeIndexes.node2Name} - 第${nodeIndexes.node3}节 - 第${nodeIndexes.node4}部分`;
         markdownContent += `### ${title}\n\n`;
         
-        if (message.content) {
-          markdownContent += `${message.content}\n\n`;
+        if (message.data[selectedConfig.terms.detail]) {
+          markdownContent += `${message.data[selectedConfig.terms.detail]}\n\n`;
         }
       }
     });
