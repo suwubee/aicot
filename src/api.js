@@ -1,25 +1,221 @@
 // api.js
 // 通用的 AI API 调用函数
-export async function callAIAPI(apiUrl, apiKey, model, messages, functions, function_call) {
-  let body;
-  if (model.startsWith('o1-')) {
-    // 如果是 o1- 开头的模型,去掉 functions 和 function_call
-    body = JSON.stringify({
-      model: model,
-      messages: messages,
-      temperature: 1,
-      max_tokens: 8000,
-    });
-  } else {
-    body = JSON.stringify({
-      model: model,
-      messages: messages,
-      functions: functions,
-      function_call: function_call,
-      temperature: 0.5,
-      max_tokens: 8000,
-    });
+
+// 模型配置管理器
+const ModelConfigManager = {
+  // 模型类型定义
+  MODEL_TYPES: {
+    O1: 'o1',
+    GPT: 'gpt',
+    DEEPSEEK: 'deepseek',
+    // 后续可以在这里添加更多模型类型
+  },
+
+  // 获取模型类型
+  getModelType(model) {
+    if (model.startsWith('o1-')) return this.MODEL_TYPES.O1;
+    if (model.startsWith('deepseek-')) return this.MODEL_TYPES.DEEPSEEK;
+    return this.MODEL_TYPES.GPT;
+  },
+
+  // 构建请求体
+  buildRequestBody(model, messages, functions, function_call) {
+    const modelType = this.getModelType(model);
+    
+    // 压缩消息内容
+    const compressedMessages = messages.map(msg => ({
+      ...msg,
+      content: msg.content.replace(/\s+/g, ' ').trim()
+    }));
+
+    // 压缩函数定义
+    const compressedFunctions = functions ? functions.map(fn => ({
+      ...fn,
+      description: fn.description.replace(/\s+/g, ' ').trim()
+    })) : undefined;
+    
+    switch (modelType) {
+      case this.MODEL_TYPES.O1:
+        return {
+          model,
+          messages: compressedMessages.map(msg => ({
+            role: msg.role === 'system' ? 'user' : msg.role,
+            content: msg.content
+          })),
+          temperature: 1,
+          max_tokens: 8000,
+        };
+      
+      case this.MODEL_TYPES.DEEPSEEK:
+        return {
+          model,
+          messages: compressedMessages,
+          response_format: {
+            type: 'json_object'
+          },
+          temperature: 0.5,
+          max_tokens: 8000,
+        };
+      
+      case this.MODEL_TYPES.GPT:
+      default:
+        return {
+          model,
+          messages: compressedMessages,
+          functions: compressedFunctions,
+          function_call,
+          temperature: 0.5,
+          max_tokens: 8000,
+        };
+    }
+  },
+
+  // 处理响应数据
+  handleResponse(model, response, terms = null) {
+    const modelType = this.getModelType(model);
+    const message = response.choices[0].message;
+
+    switch (modelType) {
+      case this.MODEL_TYPES.O1:
+        try {
+          // 如果返回的是对象，直接使用
+          if (typeof message.content === 'object') {
+            return { functionResult: message.content };
+          }
+
+          // 尝试从 content 中提取 JSON
+          const jsonMatch = message.content.match(/```json\s*([\s\S]*?)\s*```/);
+          if (!jsonMatch) {
+            // 如果没有 JSON 标记，尝试直接解析整个 content
+            try {
+              const parsedContent = JSON.parse(message.content);
+              // 如果是动态思维链配置，直接返回
+              if (parsedContent.terms && parsedContent.fixedDescriptions) {
+                return { functionResult: parsedContent };
+              }
+              // 如果是主结构内容，需要处理 description 对象
+              const processedContent = this._processMainStructureContent(parsedContent);
+              return { functionResult: processedContent };
+            } catch {
+              throw new Error('AI 返回的数据中未找到有效的 JSON。');
+            }
+          }
+
+          // 提取并解析 JSON
+          const jsonStr = jsonMatch[1].replace(/\n/g, ' ').replace(/\\"/g, '"');
+          const parsedJson = JSON.parse(jsonStr);
+          // 如果是动态思维链配置，直接返回
+          if (parsedJson.terms && parsedJson.fixedDescriptions) {
+            return { functionResult: parsedJson };
+          }
+          // 如果是主结构内容，需要处理 description 对象
+          const processedJson = this._processMainStructureContent(parsedJson);
+          return { functionResult: processedJson };
+        } catch (error) {
+          console.error('处理 o1 模型响应时出错:', error);
+          throw new Error(`AI 返回的数据格式不正确: ${error.message}`);
+        }
+
+      case this.MODEL_TYPES.DEEPSEEK:
+        try {
+          if (!message.content) {
+            throw new Error('DeepSeek 返回的数据为空');
+          }
+          const parsedContent = JSON.parse(message.content);
+          // 如果是动态思维链配置，直接返回
+          if (parsedContent.terms && parsedContent.fixedDescriptions) {
+            return { functionResult: parsedContent };
+          }
+          // 如果是主结构内容，需要处理 description 对象
+          const processedContent = this._processMainStructureContent(parsedContent);
+          return { functionResult: processedContent };
+        } catch (error) {
+          console.error('处理 DeepSeek 模型响应时出错:', error);
+          throw new Error(`DeepSeek 返回的数据格式不正确: ${error.message}`);
+        }
+
+      case this.MODEL_TYPES.GPT:
+      default:
+        if (!message.function_call || !message.function_call.arguments) {
+          throw new Error('AI 返回的数据不包含 function_call 信息。');
+        }
+        return { functionResult: JSON.parse(message.function_call.arguments) };
+    }
+  },
+
+  // 处理主结构内容中的 description 对象
+  _processMainStructureContent(content) {
+    const processNode = (node) => {
+      if (Array.isArray(node)) {
+        return node.map(item => {
+          if (item.description) {
+            const processedItem = { ...item };
+            processedItem.content = typeof item.description === 'object' ? 
+              Object.entries(item.description)
+                .map(([key, value]) => {
+                  if (Array.isArray(value)) {
+                    return `${key}:\n${value.map(v => `- ${v}`).join('\n')}`;
+                  }
+                  return `${key}: ${value}`;
+                })
+                .join('\n') :
+              item.description;
+            delete processedItem.description;
+            return processedItem;
+          }
+          return item;
+        });
+      } else if (typeof node === 'object' && node !== null) {
+        if (node.description) {
+          // 如果节点有 description 和其他属性
+          const processedNode = { ...node };
+          if (typeof node.description === 'object') {
+            processedNode.content = Object.entries(node.description)
+              .map(([key, value]) => {
+                if (Array.isArray(value)) {
+                  return `${key}:\n${value.map(v => `- ${v}`).join('\n')}`;
+                }
+                return `${key}: ${value}`;
+              })
+              .join('\n');
+          } else {
+            processedNode.content = node.description;
+          }
+          delete processedNode.description;
+          
+          // 处理其他属性
+          for (const [key, value] of Object.entries(processedNode)) {
+            if (key !== 'content' && typeof value === 'object' && value !== null) {
+              processedNode[key] = processNode(value);
+            }
+          }
+          return processedNode;
+        } else if (Object.keys(node).length > 0) {
+          const processedObj = {};
+          for (const [key, value] of Object.entries(node)) {
+            processedObj[key] = processNode(value);
+          }
+          return processedObj;
+        }
+      }
+      return node;
+    };
+
+    // 处理主结构内容
+    const result = {};
+    for (const [key, value] of Object.entries(content)) {
+      if (typeof value === 'object' && value !== null) {
+        result[key] = processNode(value);
+      } else {
+        result[key] = value;
+      }
+    }
+    return result;
   }
+};
+
+export async function callAIAPI(apiUrl, apiKey, model, messages, functions, function_call) {
+  const body = JSON.stringify(ModelConfigManager.buildRequestBody(model, messages, functions, function_call));
 
   const response = await fetch(apiUrl, {
     method: 'POST',
@@ -35,61 +231,83 @@ export async function callAIAPI(apiUrl, apiKey, model, messages, functions, func
   }
 
   const data = await response.json();
-  const message = data.choices[0].message;
-
-  if (model.startsWith('o1-')) {
-    // 对于 o1 等模型,需要从 message.content 中提取 JSON
-    const jsonMatch = message.content.match(/```json[\s\S]*?\n([\s\S]*?)\n```/);
-    if (jsonMatch) {
-      try {
-        // 将匹配到的 JSON 字符串中的换行符替换为空格,并替换掉多余的引号
-        const jsonStr = jsonMatch[1].replace(/\n/g, ' ').replace(/\\"/g, '"');
-        const functionResult = JSON.parse(jsonStr);
-        return { functionResult };
-      } catch (error) {
-        console.error('提取 JSON 时出错:', error);
-        throw new Error('AI 返回的数据格式不正确。');
-      }
-    } else {
-      throw new Error('AI 返回的数据中未找到 JSON。');
-    }
-  } else {
-    // 检查是否有函数调用结果
-    if (message.function_call && message.function_call.arguments) {
-      const functionResult = JSON.parse(message.function_call.arguments);
-      return { functionResult };
-    } else {
-      throw new Error('AI 返回的数据不包含 function_call 信息。');
-    }
-  }
+  return ModelConfigManager.handleResponse(model, data);
 }
 
 // 新增函数,根据模型类型构建消息数组
 function buildMessages(model, systemRolePrompt, userPrompt, functionParams) {
-  if (model.startsWith('o1-')) {
-    // 如果是 o1- 开头的模型,将 systemRolePrompt 放在 userPrompt 前面,并将 functionParams 转化为提示词
-    let functionPrompt = '';
-    if (functionParams) {
-      functionPrompt = `请根据以下要求生成内容:\n${JSON.stringify(functionParams, null, 2)}`;
-    }
-    return [
-      {
-        role: 'user',
-        content: `${systemRolePrompt}\n\n${userPrompt}\n\n${functionPrompt}`,
-      },
-    ];
-  } else {
-    // 其他模型保持原有的消息格式
-    return [
-      {
-        role: 'system',
-        content: systemRolePrompt,
-      },
-      {
-        role: 'user',
-        content: userPrompt,
-      },
-    ];
+  const modelType = ModelConfigManager.getModelType(model);
+
+  switch (modelType) {
+    case ModelConfigManager.MODEL_TYPES.O1:
+      // 如果是 o1- 开头的模型,将 systemRolePrompt 放在 userPrompt 前面,并将 functionParams 转化为提示词
+      let functionPrompt = '';
+      if (functionParams) {
+        functionPrompt = `请根据以下要求生成内容:\n${JSON.stringify(functionParams, null, 2)}`;
+      }
+      return [
+        {
+          role: 'user',
+          content: `${systemRolePrompt}\n\n${userPrompt}\n\n${functionPrompt}`,
+        },
+      ];
+
+    case ModelConfigManager.MODEL_TYPES.DEEPSEEK:
+      // DeepSeek 模型需要更明确的 JSON 格式指导
+      let deepseekPrompt = '';
+      if (functionParams) {
+        // 对于动态思维链配置生成，添加更明确的格式要求
+        if (functionParams.terms && functionParams.fixedDescriptions) {
+          deepseekPrompt = `
+请严格按照以下 JSON 格式要求输出内容。特别注意：
+1. fixedDescriptions 必须是一个对象，其中每个键对应 node2 数组中的一个步骤
+2. 每个步骤的描述必须是一个字符串，不能是对象或其他格式
+3. 描述内容要包含该步骤的目标、任务、注意事项和关联性，但这些内容要组织在一段文字中，而不是分开的字段
+
+示例格式：
+{
+  "terms": {
+    "node1": "流程名称",
+    "node2": ["步骤1", "步骤2"],
+    ...
+  },
+  "fixedDescriptions": {
+    "步骤1": "这是步骤1的详细描述，包含目标：xxx；任务：xxx；注意事项：xxx；关联性：xxx",
+    "步骤2": "这是步骤2的详细描述，包含目标：xxx；任务：xxx；注意事项：xxx；关联性：xxx"
+  },
+  ...
+}
+
+请按照以下参数要求生成内容：
+${JSON.stringify(functionParams, null, 2)}`;
+        } else {
+          deepseekPrompt = `请严格按照以下 JSON 格式要求输出内容：\n${JSON.stringify(functionParams, null, 2)}`;
+        }
+      }
+      return [
+        {
+          role: 'system',
+          content: systemRolePrompt
+        },
+        {
+          role: 'user',
+          content: `${userPrompt}\n\n${deepseekPrompt}`
+        }
+      ];
+
+    case ModelConfigManager.MODEL_TYPES.GPT:
+    default:
+      // 其他模型保持原有的消息格式
+      return [
+        {
+          role: 'system',
+          content: systemRolePrompt,
+        },
+        {
+          role: 'user',
+          content: userPrompt,
+        },
+      ];
   }
 }
 
@@ -573,5 +791,279 @@ ${existingSections.join('\n\n')}
       },
     };
   }
+}
+
+// 生成动态配置
+export async function generateDynamicConfig(apiUrl, apiKey, model, userContent) {
+  const systemPrompt = `你是一位专业的流程设计专家，能够根据用户的需求，结合实际场景设计出高质量的思维流程和步骤。请根据以下要求生成相应的配置。
+1. 请根据业务场景定义核心流程，并提出关键步骤。
+2. 每个关键步骤需要明确目标、任务和关联性，并根据实际业务需求判断哪些步骤需要详细展开。
+3. 不同场景下，步骤的设计会有所不同，以下是你需要考虑的几个方面：
+   - **自我管理**：明确步骤执行过程中需要哪些自我管理技巧，如时间管理、情绪控制等。
+   - **外部影响因素**：如何处理来自他人的影响，比如上级、客户或同事的决策。
+   - **时间管理**：如何根据步骤的轻重缓急进行时间规划，确保高效执行。
+
+[业务场景描述]
+${userContent}
+
+请生成一个完整的配置文件，包含以下三个部分：
+
+1. terms（术语定义）:
+   - node1: 主流程名称，体现业务核心
+   - node2: 3个以上的关键步骤，按照时间或逻辑顺序排列，通常是当前流程的核心步骤
+   - node2ComplexItems: 从node2中选择需要详细展开的重要步骤
+   - 其他字段保持默认值:
+     node3: "步骤"
+     node4: "子步骤"
+     node5: "步骤内容"
+     mainStructure: 整体流程设计名称
+     title: "标题"
+     outline: "大纲"
+     content: "内容"
+     detail: "详细内容"
+     type: "类型"
+     detailFlag: "detail"
+     sectionDetailType: "sectionDetail"
+
+2. fixedDescriptions（固定描述）:
+   *** 重要：必须为node2中的每一个步骤都提供详细描述，该描述是为了更好的分解node2节点的更多子步骤任务 ***
+   每个步骤需要提供详细描述。描述要清晰、操作性强，并涵盖以下内容：
+   - 目标：该步骤要达到的具体目标
+   - 任务：需要执行的具体工作内容
+   - 注意事项：执行过程中的关键点和可能遇到的挑战
+   - 关联性：该步骤与其他步骤的关联，可能涉及的外部干扰因素及其应对策略
+   
+   请确保为node2数组中的每一个步骤都提供描述，不能遗漏任何步骤。
+
+3. systemRolePrompt（系统角色提示词）:
+   根据业务场景定义AI的专业角色，包括：
+   - 专业身份：在该业务领域的专业背景和经验
+   - 核心职责：在该业务场景中需要完成的具体工作
+   - 工作方法：采用的专业方法论和工作流程
+   - 输出标准：确保输出的专业性、可操作性和完整性
+   
+4. systemRolePrompt 必须根据具体业务场景定制，不能使用通用模板，需要体现该领域的专业性和特点。
+
+请特别注意：
+1. node2中的每个步骤都必须在fixedDescriptions中有对应的详细描述
+2. 所有描述必须专业、具体、可操作
+3. 确保生成的配置完整且结构合理
+
+4. systemRolePrompt必须完全根据业务场景定制，体现专业性
+
+参考示例:
+{
+    "terms": {
+        "node1": "思考一个问题的思考过程",
+        "node2": [
+            "问题定义",
+            "信息收集",
+            "分析与推理",
+            "解决方案生成",
+            "决策与选择",
+            "实施计划",
+            "评估与反思",
+            "自我管理",
+            "外部影响因素",
+            "时间管理"
+        ],
+        "node2ComplexItems": [
+            "问题定义",
+            "分析与推理",
+            "决策与选择",
+            "外部影响因素",
+            "时间管理"
+        ],
+        "node3": "步骤",
+        "node4": "子步骤",
+        "node5": "步骤内容",
+        "mainStructure": "思维过程设计",
+        "title": "标题",
+        "outline": "大纲",
+        "content": "内容",
+        "detail": "详细内容",
+        "type": "类型",
+        "detailFlag": "详情标志",
+        "sectionDetailType": "部分详情类型"
+    },
+    "fixedDescriptions": {
+        "问题定义": "明确要解决的问题，包括问题的背景、范围和目标，确保问题陈述清晰具体。从自身出发，不依赖他人，明确自主决策的范围。",
+        "信息收集": "收集与问题相关的所有必要信息和数据，包括定性和定量数据，以便进行全面分析。考虑自身资源和能力，确保信息的全面性和准确性。",
+        "分析与推理": "对收集到的信息进行系统分析，使用逻辑推理方法识别问题的根本原因和潜在影响。结合自我管理和外部影响因素，深入剖析问题。",
+        "解决方案生成": "基于分析结果，创造性地提出多个可行的解决方案，并评估每个方案的优缺点。考虑行动先行的重要性，确保方案具备可操作性。",
+        "决策与选择": "在多个解决方案中进行比较，选择最适合的方案，并制定决策的依据和理由。权衡外部影响因素，确保决策的有效性和可行性。",
+        "实施计划": "制定详细的行动计划，包括具体步骤、时间表、资源分配和责任分工，确保解决方案的有效执行。注重脚踏实地的执行力，避免拖延和推诿。",
+        "评估与反思": "在实施后对结果进行评估，反思整个思考过程，识别成功经验和改进点，以优化未来的思考和决策过程。关注自我成长和持续改进。",
+        "自我管理": "管理自身的思维和行为，包括自我激励、时间管理和情绪控制，确保在思考和执行过程中保持高效和专注。",
+        "外部影响因素": "考虑外部环境和他人的影响，包括老板、客户和同事的决策，制定策略以影响关键人物的决策，最大化自身的影响力。",
+        "时间管理": "理解时间的有限性，按照轻重缓急对问题进行剖析和处理，制定合理的时间安排，确保高效利用时间资源。",
+        "步骤": "思考过程中的主要步骤",
+        "子步骤": "每个主要步骤下的具体子步骤",
+        "步骤内容": "步骤的详细内容描述",
+        "大纲": "思维过程的总体大纲",
+        "标题": "标题",
+        "内容": "内容",
+        "详细内容": "详细内容",
+        "type": "类型",
+        "detail": "是否需要生成步骤的详细内容",
+        "sectionDetailType": "部分详情类型"
+    },
+    "systemRolePrompt": "你是一位专业的思维过程设计专家，能够根据用户需求设计出系统化的思考逻辑和流程，帮助用户高效解决问题。请确保以下几点:\n1. 思考过程和步骤需要清晰、逻辑性强，包含自我管理、外部影响因素和时间管理等关键要素。\n2. 包含详细的步骤和说明，确保用户能够理解并应用，包括如何从自身出发，不依赖他人，影响关键人物的决策。\n3. 输出的内容应当严格遵循用户提供的 JSON 结构和字段名称，确保内容完整、条理清晰。\n4. 每个步骤和子步骤应包含清晰的目标、预期成果，以及详细的步骤，注重行动先行和脚踏实地的执行力。\n5. 在设计上应以用户为中心，确保可读性和易用性，同时考虑时间的有限性和AI自身的局限性，提供实际可行的指导措施。\n\n你是负责根据这些指导原则，为思维过程的生成、调整和细节补充提供支持的专家。",
+    "id": "1728716438680",
+    "name": "思维过程设计"
+}
+`
+.replace(/\s+/g, ' ')
+.trim();
+
+  const messages = [
+    {
+      role: 'system',
+      content: systemPrompt
+    }
+  ];
+
+  const functions = [
+    {
+      name: 'generate_dynamic_config',
+      description: '根据业务场景生成配置文件',
+      parameters: {
+        type: 'object',
+        properties: {
+          terms: {
+            type: 'object',
+            description: '定义各个节点的名称',
+            properties: {
+              node1: { type: 'string', description: '主流程名称，体现业务核心' },
+              node2: { 
+                type: 'array',
+                items: { type: 'string' },
+                description: '8-12个关键步骤数组，按照时间或逻辑顺序排列，通常是当前流程的核心步骤'
+              },
+              node2ComplexItems: {
+                type: 'array',
+                items: { type: 'string' },
+                description: '从node2中选择需要详细展开的重要步骤'
+              },
+              node3: { type: 'string', description: '步骤（保持默认值）' },
+              node4: { type: 'string', description: '子步骤（保持默认值）' },
+              node5: { type: 'string', description: '步骤内容（保持默认值）' },
+              mainStructure: { type: 'string', description: '整体流程设计名称' },
+              title: { type: 'string', description: '标题（保持默认值）' },
+              outline: { type: 'string', description: '大纲（保持默认值）' },
+              content: { type: 'string', description: '内容（保持默认值）' },
+              detail: { type: 'string', description: '详细内容（保持默认值）' },
+              type: { type: 'string', description: '类型（保持默认值）' },
+              detailFlag: { type: 'string', description: 'detail（保持默认值）' },
+              sectionDetailType: { type: 'string', description: 'sectionDetail（保持默认值）' }
+            },
+            required: ['node1', 'node2', 'node2ComplexItems', 'node3', 'node4', 'node5', 'mainStructure', 'title', 'outline', 'content', 'detail', 'type', 'detailFlag', 'sectionDetailType']
+          },
+          fixedDescriptions: {
+            type: 'object',
+            description: '为node2中的每个步骤提供详细描述，包括目标、任务、注意事项等',
+            additionalProperties: {
+              type: 'string',
+              description: '步骤的详细描述'
+            }
+          },
+          systemRolePrompt: {
+            type: 'string',
+            description: '根据业务场景定义AI的专业角色，包括专业身份、核心职责、工作方法和输出标准'
+          }
+        },
+        required: ['terms', 'fixedDescriptions', 'systemRolePrompt']
+      }
+    }
+  ];
+
+  const function_call = { name: 'generate_dynamic_config' };
+
+  try {
+    const result = await callAIAPI(apiUrl, apiKey, model, messages, functions, function_call);
+    
+    // 验证配置
+    if (result && result.functionResult) {
+      validateDynamicConfig(result.functionResult);
+      return result;
+    } else {
+      throw new Error('生成的配置数据无效');
+    }
+  } catch (error) {
+    console.error('生成动态配置失败:', error);
+    throw new Error(`生成动态配置失败: ${error.message}`);
+  }
+}
+
+// 验证动态配置
+function validateDynamicConfig(config) {
+  // 检查基本结构
+  if (!config.terms || !config.fixedDescriptions || !config.systemRolePrompt) {
+    throw new Error('配置文件缺少必要字段 (terms/fixedDescriptions/systemRolePrompt)');
+  }
+
+  // 检查 terms 必需字段
+  const requiredTerms = [
+    'node1', 'node2', 'node2ComplexItems', 'node3', 'node4', 'node5',
+    'mainStructure', 'title', 'outline', 'content', 'detail', 'type',
+    'detailFlag', 'sectionDetailType'
+  ];
+  
+  for (const term of requiredTerms) {
+    if (!config.terms[term]) {
+      throw new Error(`配置文件缺少必要字段 terms.${term}`);
+    }
+  }
+
+  // 检查数组类型
+  if (!Array.isArray(config.terms.node2)) {
+    throw new Error('node2 必须是数组类型');
+  }
+  if (!Array.isArray(config.terms.node2ComplexItems)) {
+    throw new Error('node2ComplexItems 必须是数组类型');
+  }
+
+  // 检查 node2 数组长度
+  if (config.terms.node2.length < 2 || config.terms.node2.length > 36) {
+    throw new Error('node2 数组长度必须大于2');
+  }
+
+  // 检查 node2ComplexItems 中的项必须存在于 node2 中
+  for (const complexItem of config.terms.node2ComplexItems) {
+    if (!config.terms.node2.includes(complexItem)) {
+      throw new Error(`node2ComplexItems 中的项 "${complexItem}" 必须存在于 node2 中`);
+    }
+  }
+
+  // 检查 fixedDescriptions 中的描述是否与 node2 中的步骤匹配
+  for (const node2Item of config.terms.node2) {
+    if (!config.fixedDescriptions[node2Item]) {
+      // 尝试查找数字编号的描述（例如："步骤1"）
+      const stepNumber = config.terms.node2.indexOf(node2Item) + 1;
+      const alternativeKey = `步骤${stepNumber}`;
+      
+      if (config.fixedDescriptions[alternativeKey]) {
+        // 如果找到了数字编号的描述，将其复制到正确的键名下
+        config.fixedDescriptions[node2Item] = config.fixedDescriptions[alternativeKey];
+        delete config.fixedDescriptions[alternativeKey];
+      } else {
+        throw new Error(`缺少 ${node2Item} 的固定描述`);
+      }
+    }
+  }
+
+  // 设置默认值
+  config.terms.node3 = config.terms.node3 || '步骤';
+  config.terms.node4 = config.terms.node4 || '子步骤';
+  config.terms.node5 = config.terms.node5 || '步骤内容';
+  config.terms.title = config.terms.title || '标题';
+  config.terms.outline = config.terms.outline || '大纲';
+  config.terms.content = config.terms.content || '内容';
+  config.terms.detail = config.terms.detail || '详细内容';
+  config.terms.type = config.terms.type || '类型';
+  config.terms.detailFlag = config.terms.detailFlag || 'detail';
+  config.terms.sectionDetailType = config.terms.sectionDetailType || 'sectionDetail';
+
+  return true;
 }
 
