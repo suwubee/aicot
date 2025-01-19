@@ -167,6 +167,7 @@ export default function ChatInterfaceView({
           mainStructure={mainStructure}
           currentNodeIndexes={currentNodeIndexes}
         />
+
       </div>
 
       {/* 右侧主内容区域 */}
@@ -185,6 +186,7 @@ export default function ChatInterfaceView({
         </div>
 
         {/* 配置选择提示 */}
+
         {messages.length === 0 && (
           <div className="p-4 bg-white border-b flex items-center justify-between">
             <span className="text-sm text-gray-700">
