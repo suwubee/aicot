@@ -756,8 +756,8 @@ ${existingSections.join('\n\n')}
       throw new Error('AI 返回的数据中未找到 JSON。');
     }
   } else if (model.startsWith('deepseek-')) {
-    // DeepSeek 模型不使用 functions 参数
     const data = await callAIAPI(apiUrl, apiKey, model, messages);
+    // DeepSeek 模型的返回已经在 handleResponse 中处理过，直接使用
     return {
       functionResult: {
         ...data.functionResult,

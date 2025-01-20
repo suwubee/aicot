@@ -19,8 +19,6 @@ import {
   generateNextDetail,
 } from './services/contentGenerationService';
 
-import { generateDynamicConfig } from './services/dynamicConfigService';
-
 /**
  * 2. messageService：处理消息的创建和渲染
  *    - createUserMessage: 创建用户消息
