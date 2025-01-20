@@ -34,10 +34,19 @@ const createDynamicConfig = () => ({
  * @returns {string} 下载文件的URL
  */
 export const exportChatData = (chatHistories, configurations, selectedConfig) => {
+  // 过滤掉系统配置
+  const configsToExport = configurations.filter(config => !config.isSystemConfig);
+  
+  // 如果选中的配置是系统配置，使用第一个非系统配置
+  let selectedConfigToExport = selectedConfig;
+  if (selectedConfig.isSystemConfig) {
+    selectedConfigToExport = configsToExport[0] || null;
+  }
+
   const dataStr = JSON.stringify({
     chatHistories,
-    configurations,
-    selectedConfig,
+    configurations: configsToExport,
+    selectedConfig: selectedConfigToExport,
   }, null, 2);
   const blob = new Blob([dataStr], { type: 'application/json' });
   return URL.createObjectURL(blob);
@@ -73,9 +82,18 @@ export const importChatData = (jsonString) => {
  * @returns {string} 下载文件的URL
  */
 export const exportConfigurations = (configurations, selectedConfig) => {
+  // 过滤掉系统配置
+  const configsToExport = configurations.filter(config => !config.isSystemConfig);
+  
+  // 如果选中的配置是系统配置，使用第一个非系统配置
+  let selectedConfigToExport = selectedConfig;
+  if (selectedConfig.isSystemConfig) {
+    selectedConfigToExport = configsToExport[0] || null;
+  }
+
   const dataStr = JSON.stringify({
-    configurations,
-    selectedConfig,
+    configurations: configsToExport,
+    selectedConfig: selectedConfigToExport,
   }, null, 2);
   const blob = new Blob([dataStr], { type: 'application/json' });
   return URL.createObjectURL(blob);
