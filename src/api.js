@@ -75,71 +75,70 @@ const ModelConfigManager = {
     const modelType = this.getModelType(model);
     const message = response.choices[0].message;
 
-    switch (modelType) {
-      case this.MODEL_TYPES.O1:
-        try {
-          // 如果返回的是对象，直接使用
-          if (typeof message.content === 'object') {
-            return { functionResult: message.content };
-          }
-
-          // 尝试从 content 中提取 JSON
-          const jsonMatch = message.content.match(/```json\s*([\s\S]*?)\s*```/);
-          if (!jsonMatch) {
-            // 如果没有 JSON 标记，尝试直接解析整个 content
-            try {
-              const parsedContent = JSON.parse(message.content);
-              // 如果是动态思维链配置，直接返回
-              if (parsedContent.terms && parsedContent.fixedDescriptions) {
-                return { functionResult: parsedContent };
-              }
-              // 如果是主结构内容，需要处理 description 对象
-              const processedContent = this._processMainStructureContent(parsedContent);
-              return { functionResult: processedContent };
-            } catch {
-              throw new Error('AI 返回的数据中未找到有效的 JSON。');
-            }
-          }
-
-          // 提取并解析 JSON
-          const jsonStr = jsonMatch[1].replace(/\n/g, ' ').replace(/\\"/g, '"');
-          const parsedJson = JSON.parse(jsonStr);
-          // 如果是动态思维链配置，直接返回
-          if (parsedJson.terms && parsedJson.fixedDescriptions) {
-            return { functionResult: parsedJson };
-          }
-          // 如果是主结构内容，需要处理 description 对象
-          const processedJson = this._processMainStructureContent(parsedJson);
-          return { functionResult: processedJson };
-        } catch (error) {
-          console.error('处理 o1 模型响应时出错:', error);
-          throw new Error(`AI 返回的数据格式不正确: ${error.message}`);
+    // 通用的 JSON 提取和解析函数
+    const extractAndParseJSON = (content) => {
+      try {
+        // 1. 如果已经是对象，直接返回
+        if (typeof content === 'object') {
+          return content;
         }
 
-      case this.MODEL_TYPES.DEEPSEEK:
-        try {
+        // 2. 尝试从 markdown 代码块中提取 JSON
+        const jsonMatch = content.match(/```(?:json)?\s*([\s\S]*?)\s*```/);
+        if (jsonMatch) {
+          const jsonStr = jsonMatch[1].replace(/\n/g, ' ').replace(/\\"/g, '"');
+          return JSON.parse(jsonStr);
+        }
+
+        // 3. 尝试直接解析整个内容
+        return JSON.parse(content);
+      } catch (error) {
+        console.error('JSON 解析失败:', error);
+        throw new Error('AI 返回的数据格式不正确');
+      }
+    };
+
+    // 处理解析后的内容
+    const processContent = (parsedContent) => {
+      // 如果是动态思维链配置，直接返回
+      if (parsedContent.terms && parsedContent.fixedDescriptions) {
+        return parsedContent;
+      }
+      // 如果是主结构内容，需要处理 description 对象
+      return this._processMainStructureContent(parsedContent);
+    };
+
+    try {
+      switch (modelType) {
+        case this.MODEL_TYPES.GPT:
+          // GPT 模型可能返回 function_call 或直接返回内容
+          if (message.function_call && message.function_call.arguments) {
+            // 处理 function_call 返回
+            return { functionResult: processContent(JSON.parse(message.function_call.arguments)) };
+          } else if (message.content) {
+            // 处理直接返回内容的情况
+            return { functionResult: processContent(extractAndParseJSON(message.content)) };
+          }
+          throw new Error('GPT 返回的数据格式不正确');
+
+        case this.MODEL_TYPES.DEEPSEEK:
           if (!message.content) {
             throw new Error('DeepSeek 返回的数据为空');
           }
-          const parsedContent = JSON.parse(message.content);
-          // 如果是动态思维链配置，直接返回
-          if (parsedContent.terms && parsedContent.fixedDescriptions) {
-            return { functionResult: parsedContent };
-          }
-          // 如果是主结构内容，需要处理 description 对象
-          const processedContent = this._processMainStructureContent(parsedContent);
-          return { functionResult: processedContent };
-        } catch (error) {
-          console.error('处理 DeepSeek 模型响应时出错:', error);
-          throw new Error(`DeepSeek 返回的数据格式不正确: ${error.message}`);
-        }
+          return { functionResult: processContent(extractAndParseJSON(message.content)) };
 
-      case this.MODEL_TYPES.GPT:
-      default:
-        if (!message.function_call || !message.function_call.arguments) {
-          throw new Error('AI 返回的数据不包含 function_call 信息。');
-        }
-        return { functionResult: JSON.parse(message.function_call.arguments) };
+        case this.MODEL_TYPES.O1:
+          if (!message.content) {
+            throw new Error('O1 返回的数据为空');
+          }
+          return { functionResult: processContent(extractAndParseJSON(message.content)) };
+
+        default:
+          throw new Error(`不支持的模型类型: ${modelType}`);
+      }
+    } catch (error) {
+      console.error(`处理 ${modelType} 模型响应时出错:`, error);
+      throw new Error(`AI 返回的数据格式不正确: ${error.message}`);
     }
   },
 
@@ -240,7 +239,7 @@ function buildMessages(model, systemRolePrompt, userPrompt, functionParams) {
 
   switch (modelType) {
     case ModelConfigManager.MODEL_TYPES.O1:
-      // 如果是 o1- 开头的模型,将 systemRolePrompt 放在 userPrompt 前面,并将 functionParams 转化为提示词
+      // O1 模型将所有内容放在一个 user 消息中
       let functionPrompt = '';
       if (functionParams) {
         functionPrompt = `请根据以下要求生成内容:\n${JSON.stringify(functionParams, null, 2)}`;
@@ -253,36 +252,10 @@ function buildMessages(model, systemRolePrompt, userPrompt, functionParams) {
       ];
 
     case ModelConfigManager.MODEL_TYPES.DEEPSEEK:
-      // DeepSeek 模型需要更明确的 JSON 格式指导
-      let deepseekPrompt = '';
+      // DeepSeek 模型将函数参数加入到 user 消息中
+      let deepseekFunctionPrompt = '';
       if (functionParams) {
-        // 对于动态思维链配置生成，添加更明确的格式要求
-        if (functionParams.terms && functionParams.fixedDescriptions) {
-          deepseekPrompt = `
-请严格按照以下 JSON 格式要求输出内容。特别注意：
-1. fixedDescriptions 必须是一个对象，其中每个键对应 node2 数组中的一个步骤
-2. 每个步骤的描述必须是一个字符串，不能是对象或其他格式
-3. 描述内容要包含该步骤的目标、任务、注意事项和关联性，但这些内容要组织在一段文字中，而不是分开的字段
-
-示例格式：
-{
-  "terms": {
-    "node1": "流程名称",
-    "node2": ["步骤1", "步骤2"],
-    ...
-  },
-  "fixedDescriptions": {
-    "步骤1": "这是步骤1的详细描述，包含目标：xxx；任务：xxx；注意事项：xxx；关联性：xxx",
-    "步骤2": "这是步骤2的详细描述，包含目标：xxx；任务：xxx；注意事项：xxx；关联性：xxx"
-  },
-  ...
-}
-
-请按照以下参数要求生成内容：
-${JSON.stringify(functionParams, null, 2)}`;
-        } else {
-          deepseekPrompt = `请严格按照以下 JSON 格式要求输出内容：\n${JSON.stringify(functionParams, null, 2)}`;
-        }
+        deepseekFunctionPrompt = `请根据以下要求生成内容:\n${JSON.stringify(functionParams, null, 2)}`;
       }
       return [
         {
@@ -291,13 +264,13 @@ ${JSON.stringify(functionParams, null, 2)}`;
         },
         {
           role: 'user',
-          content: `${userPrompt}\n\n${deepseekPrompt}`
-        }
+          content: `${userPrompt}\n\n${deepseekFunctionPrompt}`,
+        },
       ];
 
     case ModelConfigManager.MODEL_TYPES.GPT:
     default:
-      // 其他模型保持原有的消息格式
+      // GPT 模型使用标准的 function_call 格式
       return [
         {
           role: 'system',
@@ -319,9 +292,11 @@ export async function generateNewMainStructure(apiUrl, apiKey, model, userConten
 
   const messages = buildMessages(model, systemRolePrompt, prompt, functionCalls.mainStructureFunction.parameters);
 
-  if (model.startsWith('o1-')) {
+  if (model.startsWith('o1-') || model.startsWith('deepseek-')) {
+    // O1 和 DeepSeek 模型不使用 functions 参数
     return await callAIAPI(apiUrl, apiKey, model, messages);
   } else {
+    // GPT 模型使用标准的 function_call 格式
     const functions = [functionCalls.mainStructureFunction];
     const function_call = { name: functionCalls.mainStructureFunction.name };
     return await callAIAPI(apiUrl, apiKey, model, messages, functions, function_call);
@@ -553,9 +528,11 @@ export async function adjustMainStructure(apiUrl, apiKey, model, currentDesign, 
 
   const messages = buildMessages(model, systemRolePrompt, prompt, functionCalls.mainStructureFunction.parameters);
 
-  if (model.startsWith('o1-')) {
+  if (model.startsWith('o1-') || model.startsWith('deepseek-')) {
+    // O1 和 DeepSeek 模型不使用 functions 参数
     return await callAIAPI(apiUrl, apiKey, model, messages);
   } else {
+    // GPT 模型使用标准的 function_call 格式
     const functions = [functionCalls.mainStructureFunction];
     const function_call = { name: functionCalls.mainStructureFunction.name };
     return await callAIAPI(apiUrl, apiKey, model, messages, functions, function_call);
@@ -684,7 +661,6 @@ ${existingSections.join('\n\n')}
 export async function adjustDetail(apiUrl, apiKey, model, currentContent, adjustments, nodeIndexes, currentDesign, chatMessages, config) {
   const { prompts, functionCalls, systemRolePrompt } = buildConfigFunctions(config);
   
-  // 添加以下两行代码
   const { terms } = config || {};
   if (!terms) {
     throw new Error('配置文件缺失或未定义');
@@ -779,7 +755,18 @@ ${existingSections.join('\n\n')}
     } else {
       throw new Error('AI 返回的数据中未找到 JSON。');
     }
+  } else if (model.startsWith('deepseek-')) {
+    // DeepSeek 模型不使用 functions 参数
+    const data = await callAIAPI(apiUrl, apiKey, model, messages);
+    return {
+      functionResult: {
+        ...data.functionResult,
+        [terms.title]: node3Data[terms.title],
+        nodeIndexes: nodeIndexes,
+      },
+    };
   } else {
+    // GPT 模型使用标准的 function_call 格式
     const functions = [functionCalls.detailFunction];
     const function_call = { name: functionCalls.detailFunction.name };
     const { functionResult } = await callAIAPI(apiUrl, apiKey, model, messages, functions, function_call);
@@ -806,7 +793,7 @@ export async function generateDynamicConfig(apiUrl, apiKey, model, userContent) 
 [业务场景描述]
 ${userContent}
 
-请生成一个完整的配置文件，包含以下三个部分：
+请生成一个完整的配置文件，必须包含terms，fixedDescriptions，systemRolePrompt三个部分：
 
 1. terms（术语定义）:
    - node1: 主流程名称，体现业务核心
@@ -846,10 +833,10 @@ ${userContent}
 
 请特别注意：
 1. node2中的每个步骤都必须在fixedDescriptions中有对应的详细描述
-2. 所有描述必须专业、具体、可操作
-3. 确保生成的配置完整且结构合理
-
-4. systemRolePrompt必须完全根据业务场景定制，体现专业性
+2. fixedDescriptions中每个描述不要再进行分段，直接输出完整描述
+3. 所有描述必须专业、具体、可操作
+4. 确保生成的配置完整且结构合理
+5. systemRolePrompt必须完全根据业务场景定制，体现专业性
 
 参考示例:
 {
@@ -961,7 +948,7 @@ ${userContent}
           },
           fixedDescriptions: {
             type: 'object',
-            description: '为node2中的每个步骤提供详细描述，包括目标、任务、注意事项等',
+            description: '为node2中的每个步骤提供详细描述，包含目标、任务、注意事项等，不要分段',
             additionalProperties: {
               type: 'string',
               description: '步骤的详细描述'

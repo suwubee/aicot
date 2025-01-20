@@ -110,7 +110,7 @@ const models = [
   { value: 'gpt-4o-2024-11-20', label: 'GPT-4O (2024-11-12)' },
   { value: 'gpt-4o-2024-08-06', label: 'GPT-4O (2024-08-06)' },
   { value: 'o1-mini', label: 'o1-mini' },
-  { value: 'deepseek-chat', label: 'DeepSeek-V3(极易出错不推荐)' },
+  { value: 'deepseek-chat', label: 'DeepSeek-V3' },
 ];
 
 export default function ChatInterface() {
