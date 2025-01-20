@@ -50,10 +50,7 @@ const ModelConfigManager = {
         return {
           model,
           messages: compressedMessages,
-          response_format: {
-            type: 'json_object'
-          },
-          temperature: 0.5,
+          temperature: 0.3, // 降低温度以提高稳定性
           max_tokens: 8000,
         };
       
@@ -86,15 +83,16 @@ const ModelConfigManager = {
         // 2. 尝试从 markdown 代码块中提取 JSON
         const jsonMatch = content.match(/```(?:json)?\s*([\s\S]*?)\s*```/);
         if (jsonMatch) {
-          const jsonStr = jsonMatch[1].replace(/\n/g, ' ').replace(/\\"/g, '"');
+          const jsonStr = jsonMatch[1].trim().replace(/\\"/g, '"');
           return JSON.parse(jsonStr);
         }
 
         // 3. 尝试直接解析整个内容
-        return JSON.parse(content);
+        const cleanContent = content.trim().replace(/^[^{]*({[\s\S]*})[^}]*$/, '$1');
+        return JSON.parse(cleanContent);
       } catch (error) {
         console.error('JSON 解析失败:', error);
-        throw new Error('AI 返回的数据格式不正确');
+        throw new Error(`AI 返回的数据格式不正确: ${error.message}`);
       }
     };
 
@@ -122,10 +120,19 @@ const ModelConfigManager = {
           throw new Error('GPT 返回的数据格式不正确');
 
         case this.MODEL_TYPES.DEEPSEEK:
-          if (!message.content) {
+          if (!message.content || message.content.trim() === '') {
             throw new Error('DeepSeek 返回的数据为空');
           }
-          return { functionResult: processContent(extractAndParseJSON(message.content)) };
+          try {
+            const parsedContent = extractAndParseJSON(message.content);
+            if (!parsedContent || typeof parsedContent !== 'object') {
+              throw new Error('DeepSeek 返回的数据不是有效的 JSON 对象');
+            }
+            return { functionResult: processContent(parsedContent) };
+          } catch (error) {
+            console.error('处理 DeepSeek 响应时出错:', error);
+            throw new Error(`处理 DeepSeek 响应失败: ${error.message}`);
+          }
 
         case this.MODEL_TYPES.O1:
           if (!message.content) {
@@ -255,12 +262,27 @@ function buildMessages(model, systemRolePrompt, userPrompt, functionParams) {
       // DeepSeek 模型将函数参数加入到 user 消息中
       let deepseekFunctionPrompt = '';
       if (functionParams) {
-        deepseekFunctionPrompt = `请根据以下要求生成JSON格式的内容:\n${JSON.stringify(functionParams, null, 2)}`;
+
+        deepseekFunctionPrompt = `
+请严格按照以下 JSON Schema 格式生成内容:
+${JSON.stringify(functionParams, null, 2)}
+
+要求：
+1. 必须使用 JSON 格式输出
+2. 所有字段必须完全匹配 Schema 定义
+3. 不要添加任何额外的解释或说明
+4. 输出时使用 markdown 的 json 代码块，如：
+\`\`\`json
+{
+  // 你的输出内容
+}
+\`\`\`
+`;
       }
       return [
         {
           role: 'system',
-          content: systemRolePrompt
+          content: `${systemRolePrompt}\n\n作为 AI 助手，你必须：\n1. 始终使用 JSON 格式输出\n2. 确保输出的所有字段都符合要求\n3. 不要添加任何额外的解释文字`
         },
         {
           role: 'user',
@@ -572,9 +594,11 @@ ${JSON.stringify(mainStructure, null, 2).replace(/\s+/g, ' ').replace(/\n/g, ' '
 
     const messages = buildMessages(model, systemRolePrompt, prompt, functionCalls.detailFunction.parameters);
 
-    if (model.startsWith('o1-')) {
+    if (model.startsWith('o1-') || model.startsWith('deepseek-')) {
+      // O1 和 DeepSeek 模型不使用 functions 参数
       return await callAIAPI(apiUrl, apiKey, model, messages);
     } else {
+      // GPT 模型使用标准的 function_call 格式
       const functions = [functionCalls.detailFunction];
       const function_call = { name: functionCalls.detailFunction.name };
       return await callAIAPI(apiUrl, apiKey, model, messages, functions, function_call);
@@ -648,9 +672,11 @@ ${existingSections.join('\n\n')}
 
   const messagesToSend = buildMessages(model, systemRolePrompt, prompt, functionCalls.detailFunction.parameters);
 
-  if (model.startsWith('o1-')) {
+  if (model.startsWith('o1-') || model.startsWith('deepseek-')) {
+    // O1 和 DeepSeek 模型不使用 functions 参数
     return await callAIAPI(apiUrl, apiKey, model, messagesToSend);
   } else {
+    // GPT 模型使用标准的 function_call 格式
     const functions = [functionCalls.detailFunction];
     const function_call = { name: functionCalls.detailFunction.name };
     return await callAIAPI(apiUrl, apiKey, model, messagesToSend, functions, function_call);
@@ -734,7 +760,8 @@ ${existingSections.join('\n\n')}
 
   const messages = buildMessages(model, systemRolePrompt, prompt, functionCalls.detailFunction.parameters);
 
-  if (model.startsWith('o1-')) {
+  if (model.startsWith('o1-') || model.startsWith('deepseek-')) {
+    // O1 和 DeepSeek 模型都需要从返回内容中提取 JSON
     const data = await callAIAPI(apiUrl, apiKey, model, messages);
     const jsonMatch = data.functionResult[terms.detail].match(/```json\n([\s\S]*?)\n```/);
     if (jsonMatch) {
