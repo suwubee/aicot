@@ -255,7 +255,7 @@ function buildMessages(model, systemRolePrompt, userPrompt, functionParams) {
       // DeepSeek 模型将函数参数加入到 user 消息中
       let deepseekFunctionPrompt = '';
       if (functionParams) {
-        deepseekFunctionPrompt = `请根据以下要求生成内容:\n${JSON.stringify(functionParams, null, 2)}`;
+        deepseekFunctionPrompt = `请根据以下要求生成JSON格式的内容:\n${JSON.stringify(functionParams, null, 2)}`;
       }
       return [
         {
