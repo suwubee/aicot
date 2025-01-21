@@ -111,11 +111,33 @@ const models = [
   { value: 'deepseek-chat', label: 'DeepSeek-V3' },
 ];
 
+// 添加常量定义
+const INITIAL_NODE_INDEXES = {
+  node1: 1,
+  node2: 1,
+  node3: 1,
+  node4: 1,
+};
+
+// 公共的文件导出函数
+const downloadFile = (url, filename) => {
+  let link;
+  try {
+    link = document.createElement('a');
+    link.href = url;
+    link.download = filename;
+    document.body.appendChild(link);
+    link.click();
+  } finally {
+    if (link && link.parentNode) {
+      document.body.removeChild(link);
+    }
+    URL.revokeObjectURL(url);
+  }
+};
+
 export default function ChatInterface() {
-  const [messages, setMessages] = useState(() => {
-    const storedMessages = localStorage.getItem('messages');
-    return storedMessages ? JSON.parse(storedMessages) : [];
-  });
+  const [messages, setMessages] = useState([]);
   const [input, setInput] = useState('');
   const [isLoading, setIsLoading] = useState(false);
   const [apiUrl, setApiUrl] = useState(() => {
@@ -136,12 +158,7 @@ export default function ChatInterface() {
   const [isGenerating, setIsGenerating] = useState(false);
   const isGeneratingRef = useRef(isGenerating);
   const [isFinished, setIsFinished] = useState(false);
-  const [currentNodeIndexes, setCurrentNodeIndexes] = useState({
-    node1: 1,
-    node2: 1,
-    node3: 1,
-    node4: 1,
-  });
+  const [currentNodeIndexes, setCurrentNodeIndexes] = useState(INITIAL_NODE_INDEXES);
   const [currentChatIndex, setCurrentChatIndex] = useState(0);
   const [chatHistories, setChatHistories] = useState(() => {
     const storedChatHistories = localStorage.getItem('chatHistories');
@@ -348,12 +365,7 @@ export default function ChatInterface() {
       // 重置当前状态
       setMessages([]);
       setMainStructure(null);
-      setCurrentNodeIndexes({
-        node1: 1,
-        node2: 1,
-        node3: 1,
-        node4: 1,
-      });
+      setCurrentNodeIndexes(INITIAL_NODE_INDEXES);
     }
   }, [chatHistories, currentChatIndex]);
 
@@ -459,12 +471,7 @@ export default function ChatInterface() {
       });
 
       // 重置节点索引
-      setCurrentNodeIndexes({
-        node1: 1,
-        node2: 1,
-        node3: 1,
-        node4: 1,
-      });
+      setCurrentNodeIndexes(INITIAL_NODE_INDEXES);
 
     } catch (error) {
       console.error('Error:', error);
@@ -703,12 +710,7 @@ export default function ChatInterface() {
     // 重置所有状态
     setMessages([]);
     setMainStructure(null);
-    setCurrentNodeIndexes({
-      node1: 1,
-      node2: 1,
-      node3: 1,
-      node4: 1,
-    });
+    setCurrentNodeIndexes(INITIAL_NODE_INDEXES);
     setIsGenerating(false);
     setIsFinished(false);
     setIsAdjusting(false);
@@ -757,61 +759,43 @@ export default function ChatInterface() {
 
   const handleExport = () => {
     const url = exportChatData(chatHistories, configurations, selectedConfig);
-    const link = document.createElement('a');
-    link.href = url;
-    link.download = 'chat_data.json';
-    document.body.appendChild(link);
-    link.click();
-    document.body.removeChild(link);
-    URL.revokeObjectURL(url);
+    downloadFile(url, 'chat_data.json');
   };
 
   const handleImport = async (event) => {
-    const file = event.target.files[0];
-    if (file) {
-      const reader = new FileReader();
-      reader.onload = async (e) => {
-        try {
-          const { chatHistories: importedHistories, configurations: importedConfigs, selectedConfig: importedSelected } = 
-            await importChatData(e.target.result);
-          
-          // 更新配置相关状态
-          setConfigurations(importedConfigs);
-          setSelectedConfig(importedSelected);
-          saveConfigurations(importedConfigs);
-          saveSelectedConfig(importedSelected);
-          
-          // 更新聊天相关状态
-          setChatHistories(importedHistories);
-          setMessages([]);
-          setMainStructure(null);
-          setCurrentNodeIndexes({
-            node1: 1,
-            node2: 1,
-            node3: 1,
-            node4: 1,
-          });
-          setCurrentChatIndex(null);
-          
-          // 重置其他状态
-          setIsGenerating(false);
-          setIsFinished(false);
-          setIsAdjusting(false);
-          setError('');
-          setAdjustedContent('');
-          setInput('');
-          
-          // 保存到本地存储
-          saveChatHistoriesToStorage(importedHistories);
-          localStorage.removeItem('currentChatIndex');
-          
-          alert('导入成功！');
-        } catch (error) {
-          console.error('导入失败:', error);
-          alert('导入失败，请确保文件格式正确。');
-        }
-      };
-      reader.readAsText(file);
+    const file = event.target.files?.[0];
+    if (!file) return;
+
+    try {
+      const content = await file.text();
+      const { chatHistories: importedHistories, configurations: importedConfigs, selectedConfig: importedSelected } = 
+        await importChatData(content);
+      
+      setConfigurations(importedConfigs);
+      setSelectedConfig(importedSelected);
+      saveConfigurations(importedConfigs);
+      saveSelectedConfig(importedSelected);
+      
+      setChatHistories(importedHistories);
+      setMessages([]);
+      setMainStructure(null);
+      setCurrentNodeIndexes(INITIAL_NODE_INDEXES);
+      setCurrentChatIndex(null);
+      
+      setIsGenerating(false);
+      setIsFinished(false);
+      setIsAdjusting(false);
+      setError('');
+      setAdjustedContent('');
+      setInput('');
+      
+      saveChatHistoriesToStorage(importedHistories);
+      localStorage.removeItem('currentChatIndex');
+      
+      alert('导入成功！');
+    } catch (error) {
+      console.error('导入失败:', error);
+      alert('导入失败，请确保文件格式正确。');
     }
   };
 
@@ -885,13 +869,7 @@ export default function ChatInterface() {
 
   const handleExportConfigs = () => {
     const url = exportConfigurations(configurations, selectedConfig);
-    const link = document.createElement('a');
-    link.href = url;
-    link.download = 'configurations.json';
-    document.body.appendChild(link);
-    link.click();
-    document.body.removeChild(link);
-    URL.revokeObjectURL(url);
+    downloadFile(url, 'configurations.json');
   };
 
   const handleImportConfigs = (event) => {
@@ -921,13 +899,7 @@ export default function ChatInterface() {
   const handleExportMarkdown = () => {
     try {
       const url = exportMarkdown(messages, selectedConfig);
-      const link = document.createElement('a');
-      link.href = url;
-      link.download = 'chat_content.md';
-      document.body.appendChild(link);
-      link.click();
-      document.body.removeChild(link);
-      URL.revokeObjectURL(url);
+      downloadFile(url, 'chat_content.md');
     } catch (error) {
       console.error('导出 Markdown 时发生错误:', error);
       setError(`导出失败: ${error.message}`);
