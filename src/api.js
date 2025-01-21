@@ -309,19 +309,30 @@ ${JSON.stringify(functionParams, null, 2)}
 // 新建流程设计
 export async function generateNewMainStructure(apiUrl, apiKey, model, userContent, config) {
   const { prompts, functionCalls, systemRolePrompt } = buildConfigFunctions(config);
-
   const prompt = prompts.generateMainStructurePrompt(userContent);
-
   const messages = buildMessages(model, systemRolePrompt, prompt, functionCalls.mainStructureFunction.parameters);
 
   if (model.startsWith('o1-') || model.startsWith('deepseek-')) {
     // O1 和 DeepSeek 模型不使用 functions 参数
-    return await callAIAPI(apiUrl, apiKey, model, messages);
+    const result = await callAIAPI(apiUrl, apiKey, model, messages);
+    // 统一返回格式
+    return {
+      functionResult: {
+        ...result.functionResult,
+        type: 'mainStructure'
+      }
+    };
   } else {
     // GPT 模型使用标准的 function_call 格式
     const functions = [functionCalls.mainStructureFunction];
     const function_call = { name: functionCalls.mainStructureFunction.name };
-    return await callAIAPI(apiUrl, apiKey, model, messages, functions, function_call);
+    const { functionResult } = await callAIAPI(apiUrl, apiKey, model, messages, functions, function_call);
+    return {
+      functionResult: {
+        ...functionResult,
+        type: 'mainStructure'
+      }
+    };
   }
 }
 
@@ -547,27 +558,37 @@ ${adjustments || ''}
 export async function adjustMainStructure(apiUrl, apiKey, model, currentDesign, adjustments, config) {
   const { prompts, functionCalls, systemRolePrompt } = buildConfigFunctions(config);
   const prompt = prompts.adjustMainStructurePrompt(currentDesign, adjustments);
-
   const messages = buildMessages(model, systemRolePrompt, prompt, functionCalls.mainStructureFunction.parameters);
 
   if (model.startsWith('o1-') || model.startsWith('deepseek-')) {
     // O1 和 DeepSeek 模型不使用 functions 参数
-    return await callAIAPI(apiUrl, apiKey, model, messages);
+    const result = await callAIAPI(apiUrl, apiKey, model, messages);
+    // 统一返回格式
+    return {
+      functionResult: {
+        ...result.functionResult,
+        type: 'mainStructure'
+      }
+    };
   } else {
     // GPT 模型使用标准的 function_call 格式
     const functions = [functionCalls.mainStructureFunction];
     const function_call = { name: functionCalls.mainStructureFunction.name };
-    return await callAIAPI(apiUrl, apiKey, model, messages, functions, function_call);
+    const { functionResult } = await callAIAPI(apiUrl, apiKey, model, messages, functions, function_call);
+    return {
+      functionResult: {
+        ...functionResult,
+        type: 'mainStructure'
+      }
+    };
   }
 }
 
 // 新建详细内容
 export async function generateNewDetail(apiUrl, apiKey, model, nodeIndexes, mainStructure, messages, config) {
-  if (!config) {
-    throw new Error('配置文件缺失或未定义');
-  }
   const { prompts, functionCalls, systemRolePrompt } = buildConfigFunctions(config);
   const { terms } = config || {};
+  
   if (!terms) {
     throw new Error('配置文件缺失或未定义');
   }
@@ -580,57 +601,64 @@ export async function generateNewDetail(apiUrl, apiKey, model, nodeIndexes, main
   if (nodeIndexes.isSimpleNode) {
     const node2Name = nodeIndexes.node2Name;
     const content = nodeIndexes.content;
-
-    // 构建简单节点的提示词
-    const prompt = `
-根据${terms.mainStructure}内容:
-${JSON.stringify(mainStructure, null, 2).replace(/\s+/g, ' ').replace(/\n/g, ' ')} 
-
-请为 "${node2Name}" 生成详细的${terms.detail}。
-当前内容: ${content}
-
-请生成更详细的内容描述，使用 Markdown 格式。
-`;
-
+    const prompt = prompts.generateDetailPrompt(
+      nodeIndexes,
+      mainStructure,
+      '',
+      node2Name,
+      content
+    );
     const messages = buildMessages(model, systemRolePrompt, prompt, functionCalls.detailFunction.parameters);
 
     if (model.startsWith('o1-') || model.startsWith('deepseek-')) {
-      // O1 和 DeepSeek 模型不使用 functions 参数
-      return await callAIAPI(apiUrl, apiKey, model, messages);
+      const result = await callAIAPI(apiUrl, apiKey, model, messages);
+      return {
+        functionResult: {
+          ...result.functionResult,
+          [terms.title]: node2Name,
+          nodeIndexes: nodeIndexes,
+          type: 'detail'
+        }
+      };
     } else {
-      // GPT 模型使用标准的 function_call 格式
       const functions = [functionCalls.detailFunction];
       const function_call = { name: functionCalls.detailFunction.name };
-      return await callAIAPI(apiUrl, apiKey, model, messages, functions, function_call);
+      const { functionResult } = await callAIAPI(apiUrl, apiKey, model, messages, functions, function_call);
+      return {
+        functionResult: {
+          ...functionResult,
+          [terms.title]: node2Name,
+          nodeIndexes: nodeIndexes,
+          type: 'detail'
+        }
+      };
     }
   }
 
-  // 原有的复杂节点处理逻辑...
+  // 处理复杂节点
   const node2Data = mainStructure[terms.node1][nodeIndexes.node2Name];
   if (!Array.isArray(node2Data) || nodeIndexes.node3 < 1 || nodeIndexes.node3 > node2Data.length) {
     throw new Error(`${terms.node2} 节点 "${nodeIndexes.node2Name}" 的索引 ${nodeIndexes.node3} 超出范围`);
   }
 
-  // 获取模块数据时，防止变量名冲突，改名为 node3DetailData
-  const node3DetailData = node2Data[nodeIndexes.node3 - 1];
+  const node3Data = node2Data[nodeIndexes.node3 - 1];
 
   if (
-    !node3DetailData[terms.content] ||
+    !node3Data[terms.content] ||
     nodeIndexes.node4 < 1 ||
-    nodeIndexes.node4 > node3DetailData[terms.content].length
+    nodeIndexes.node4 > node3Data[terms.content].length
   ) {
     throw new Error(`${terms.node4} 索引 ${nodeIndexes.node4} 超出范围`);
   }
 
-  // existingSections 仅包含已生成的 node4 内容，并过滤空内容
-  const existingSections = node3DetailData[terms.content]
+  // 构建已有内容参考
+  const existingSections = node3Data[terms.content]
     .map((section, index) => {
-      if (index === nodeIndexes.node4 - 1) return ''; // 跳过当前生成的 node4 环节
+      if (index === nodeIndexes.node4 - 1) return '';
 
       const sectionTitle = section;
       let sectionDetail = '';
 
-      // 查找详细内容
       const detailMessage = messages.find(
         (msg) =>
           msg.type === terms.sectionDetailType &&
@@ -639,47 +667,56 @@ ${JSON.stringify(mainStructure, null, 2).replace(/\s+/g, ' ').replace(/\n/g, ' '
           msg.data.nodeIndexes.node4 === index + 1
       );
 
-      // 仅当存在详细内容时才加入该 section
       sectionDetail = detailMessage ? detailMessage.data[terms.detail] : '';
       if (sectionDetail) {
         return `第${index + 1}${terms.node4}: ${sectionTitle}\n${sectionDetail}`;
       } else {
-        return ''; // 无内容则返回空字符串以过滤
+        return '';
       }
     })
-    .filter((section) => section.trim() !== ''); // 过滤空内容
+    .filter((section) => section.trim() !== '');
 
-  // 构建 existingSectionsPrompt
   let existingSectionsPrompt = '';
   if (existingSections.length > 0) {
     existingSectionsPrompt = `
-当前${terms.node3} "${node3DetailData[terms.title]}" 中已有的其他${terms.node4}内容:
+当前${terms.node3} "${node3Data[terms.title]}" 中已有的其他${terms.node4}内容:
 ${existingSections.join('\n\n')}
     `;
   }
 
-  // 生成详细内容的提示词
-  const node3Title = node3DetailData[terms.title];
-  const node4Title = node3DetailData[terms.content][nodeIndexes.node4 - 1];
-
+  const node4Title = node3Data[terms.content][nodeIndexes.node4 - 1];
   const prompt = prompts.generateDetailPrompt(
     nodeIndexes,
     mainStructure,
     existingSectionsPrompt,
-    node3Title,
+    node3Data[terms.title],
     node4Title
   );
 
   const messagesToSend = buildMessages(model, systemRolePrompt, prompt, functionCalls.detailFunction.parameters);
 
   if (model.startsWith('o1-') || model.startsWith('deepseek-')) {
-    // O1 和 DeepSeek 模型不使用 functions 参数
-    return await callAIAPI(apiUrl, apiKey, model, messagesToSend);
+    const result = await callAIAPI(apiUrl, apiKey, model, messagesToSend);
+    return {
+      functionResult: {
+        ...result.functionResult,
+        [terms.title]: node3Data[terms.title],
+        nodeIndexes: nodeIndexes,
+        type: 'detail'
+      }
+    };
   } else {
-    // GPT 模型使用标准的 function_call 格式
     const functions = [functionCalls.detailFunction];
     const function_call = { name: functionCalls.detailFunction.name };
-    return await callAIAPI(apiUrl, apiKey, model, messagesToSend, functions, function_call);
+    const { functionResult } = await callAIAPI(apiUrl, apiKey, model, messagesToSend, functions, function_call);
+    return {
+      functionResult: {
+        ...functionResult,
+        [terms.title]: node3Data[terms.title],
+        nodeIndexes: nodeIndexes,
+        type: 'detail'
+      }
+    };
   }
 }
 
@@ -711,15 +748,14 @@ export async function adjustDetail(apiUrl, apiKey, model, currentContent, adjust
     throw new Error(`${terms.node4} 索引 ${nodeIndexes.node4} 超出范围`);
   }
 
-  // existingSections 仅包含已生成的 node4 内容，并过滤空内容
+  // 构建已有内容参考
   const existingSections = node3Data[terms.content]
     .map((section, index) => {
-      if (index === nodeIndexes.node4 - 1) return ''; // 跳过当前生成的 node4 环节
+      if (index === nodeIndexes.node4 - 1) return '';
 
       const sectionTitle = section;
       let sectionDetail = '';
 
-      // 查找详细内容
       const detailMessage = chatMessages.find(
         (msg) =>
           msg.type === terms.sectionDetailType &&
@@ -728,17 +764,15 @@ export async function adjustDetail(apiUrl, apiKey, model, currentContent, adjust
           msg.data.nodeIndexes.node4 === index + 1
       );
 
-      // 仅当存在详细内容时才加入该 section
       sectionDetail = detailMessage ? detailMessage.data[terms.detail] : '';
       if (sectionDetail) {
         return `第${index + 1}${terms.node4}: ${sectionTitle}\n${sectionDetail}`;
       } else {
-        return ''; // 无内容则返回空字符串以过滤
+        return '';
       }
     })
-    .filter((section) => section.trim() !== ''); // 过滤空内容
+    .filter((section) => section.trim() !== '');
 
-  // 构建 existingSectionsPrompt
   let existingSectionsPrompt = '';
   if (existingSections.length > 0) {
     existingSectionsPrompt = `
@@ -762,35 +796,14 @@ ${existingSections.join('\n\n')}
 
   if (model.startsWith('o1-') || model.startsWith('deepseek-')) {
     // O1 和 DeepSeek 模型都需要从返回内容中提取 JSON
-    const data = await callAIAPI(apiUrl, apiKey, model, messages);
-    const jsonMatch = data.functionResult[terms.detail].match(/```json\n([\s\S]*?)\n```/);
-    if (jsonMatch) {
-      try {
-        const detailContent = JSON.parse(jsonMatch[1]);
-        return {
-          functionResult: {
-            ...data.functionResult,
-            [terms.detail]: detailContent,
-            [terms.title]: node3Data[terms.title],
-            nodeIndexes: nodeIndexes,
-          },
-        };
-      } catch (error) {
-        console.error('提取 JSON 时出错:', error);
-        throw new Error('AI 返回的数据格式不正确。');
-      }
-    } else {
-      throw new Error('AI 返回的数据中未找到 JSON。');
-    }
-  } else if (model.startsWith('deepseek-')) {
-    const data = await callAIAPI(apiUrl, apiKey, model, messages);
-    // DeepSeek 模型的返回已经在 handleResponse 中处理过，直接使用
+    const result = await callAIAPI(apiUrl, apiKey, model, messages);
     return {
       functionResult: {
-        ...data.functionResult,
+        ...result.functionResult,
         [terms.title]: node3Data[terms.title],
         nodeIndexes: nodeIndexes,
-      },
+        type: 'detail'
+      }
     };
   } else {
     // GPT 模型使用标准的 function_call 格式
@@ -802,7 +815,8 @@ ${existingSections.join('\n\n')}
         ...functionResult,
         [terms.title]: node3Data[terms.title],
         nodeIndexes: nodeIndexes,
-      },
+        type: 'detail'
+      }
     };
   }
 }
@@ -830,7 +844,7 @@ ${userContent}
      node3: "步骤"
      node4: "子步骤"
      node5: "步骤内容"
-     mainStructure: 整体流程设计名称
+     mainStructure: "整体流程设计名称"
      title: "标题"
      outline: "大纲"
      content: "内容"
@@ -1079,5 +1093,65 @@ function validateDynamicConfig(config) {
   config.terms.sectionDetailType = config.terms.sectionDetailType || 'sectionDetail';
 
   return true;
+}
+
+// 新建大纲
+export async function generateNewOutline(apiUrl, apiKey, model, userContent, config) {
+  const { prompts, functionCalls, systemRolePrompt } = buildConfigFunctions(config);
+  const prompt = prompts.generateOutlinePrompt(userContent);
+  const messages = buildMessages(model, systemRolePrompt, prompt, functionCalls.outlineFunction.parameters);
+
+  if (model.startsWith('o1-') || model.startsWith('deepseek-')) {
+    // O1 和 DeepSeek 模型不使用 functions 参数
+    const result = await callAIAPI(apiUrl, apiKey, model, messages);
+    // 统一返回格式
+    return {
+      functionResult: {
+        ...result.functionResult,
+        type: 'outline'
+      }
+    };
+  } else {
+    // GPT 模型使用标准的 function_call 格式
+    const functions = [functionCalls.outlineFunction];
+    const function_call = { name: functionCalls.outlineFunction.name };
+    const { functionResult } = await callAIAPI(apiUrl, apiKey, model, messages, functions, function_call);
+    return {
+      functionResult: {
+        ...functionResult,
+        type: 'outline'
+      }
+    };
+  }
+}
+
+// 调整大纲
+export async function adjustOutline(apiUrl, apiKey, model, currentOutline, adjustments, config) {
+  const { prompts, functionCalls, systemRolePrompt } = buildConfigFunctions(config);
+  const prompt = prompts.adjustOutlinePrompt(currentOutline, adjustments);
+  const messages = buildMessages(model, systemRolePrompt, prompt, functionCalls.outlineFunction.parameters);
+
+  if (model.startsWith('o1-') || model.startsWith('deepseek-')) {
+    // O1 和 DeepSeek 模型不使用 functions 参数
+    const result = await callAIAPI(apiUrl, apiKey, model, messages);
+    // 统一返回格式
+    return {
+      functionResult: {
+        ...result.functionResult,
+        type: 'outline'
+      }
+    };
+  } else {
+    // GPT 模型使用标准的 function_call 格式
+    const functions = [functionCalls.outlineFunction];
+    const function_call = { name: functionCalls.outlineFunction.name };
+    const { functionResult } = await callAIAPI(apiUrl, apiKey, model, messages, functions, function_call);
+    return {
+      functionResult: {
+        ...functionResult,
+        type: 'outline'
+      }
+    };
+  }
 }
 
