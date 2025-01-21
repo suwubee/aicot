@@ -169,9 +169,11 @@ export default function MessageList({
 
     // 处理动态思维链的情况
     const isDynamicConfig = messageConfig.isDynamic;
+    
+    // 改进节点获取逻辑
     const node2Items = isDynamicConfig ? 
-      // 如果是动态思维链，使用设计中的实际顺序
-      Object.keys(design).filter(key => typeof design[key] !== 'string') :
+      // 如果是动态思维链，保持原始顺序并包含所有类型的内容
+      Object.keys(design) :
       // 如果是固定配置，使用预定义的顺序
       terms.node2;
 
@@ -189,40 +191,64 @@ export default function MessageList({
                (Array.isArray(node2Data) && node2Data.length > 0);
       });
 
+    // 优化渲染逻辑
+    const renderNode2Content = (node2Name, content) => {
+      if (Array.isArray(content)) {
+        return (
+          <ul className="list-disc ml-6">
+            {content.map((item, itemIndex) => (
+              <li key={itemIndex}>
+                {typeof item === 'string' ? (
+                  item
+                ) : (
+                  <>
+                    <span className="font-semibold">{item[terms.title]}</span>
+                    {item[terms.content] && Array.isArray(item[terms.content]) && (
+                      <ul className="list-disc ml-8">
+                        {item[terms.content].map((subItem, subIndex) => (
+                          <li key={subIndex}>
+                            {item[terms.detailFlag] || item['详细内容'] ? (
+                              <a href={`#detail-${itemIndex + 1}-${subIndex + 1}`} className="text-blue-500 hover:underline">
+                                {subItem}
+                              </a>
+                            ) : (
+                              subItem
+                            )}
+                          </li>
+                        ))}
+                      </ul>
+                    )}
+                  </>
+                )}
+              </li>
+            ))}
+          </ul>
+        );
+      } else if (typeof content === 'object' && content !== null) {
+        // 处理可能的嵌套对象
+        return (
+          <div className="ml-6">
+            {Object.entries(content).map(([key, value], index) => (
+              <div key={index}>
+                <h5 className="font-medium">{key}</h5>
+                {renderNode2Content(key, value)}
+              </div>
+            ))}
+          </div>
+        );
+      } else {
+        // 处理字符串内容
+        return <p className="ml-6">{content}</p>;
+      }
+    };
+
     return (
       <div className="mt-4">
         <h3 className="text-xl font-semibold mb-2">{terms.node1}</h3>
         {node2Items.map((node2Name, index) => (
           <div key={index} className="mb-4">
             <h4 className="text-lg font-semibold mb-1">{node2Name}</h4>
-            {Array.isArray(design[node2Name]) ? (
-              <ul className="list-disc ml-6">
-                {design[node2Name].map((item, itemIndex) => (
-                  <li key={itemIndex}>
-                    {typeof item === 'string' ? (
-                      item
-                    ) : (
-                      <>
-                        <span className="font-semibold">{item[terms.title]}</span>
-                        {item[terms.content] && Array.isArray(item[terms.content]) && (
-                          <ul className="list-disc ml-8">
-                            {item[terms.content].map((subItem, subIndex) => (
-                              <li key={subIndex}>
-                                <a href={`#detail-${itemIndex + 1}-${subIndex + 1}`} className="text-blue-500 hover:underline">
-                                  {subItem}
-                                </a>
-                              </li>
-                            ))}
-                          </ul>
-                        )}
-                      </>
-                    )}
-                  </li>
-                ))}
-              </ul>
-            ) : (
-              <p>{design[node2Name]}</p>
-            )}
+            {renderNode2Content(node2Name, design[node2Name])}
           </div>
         ))}
         {isLatestMainStructure && hasCompleteStructure && (
