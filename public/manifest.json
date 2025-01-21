@@ -1,6 +1,7 @@
 {
-  "short_name": "React App",
-  "name": "Create React App Sample",
+  "short_name": "AI Cot",
+  "name": "AI Chain of Thought Generator",
+  "description": "基于多模型的思维链生成器，支持流程设计、大纲生成和详细内容编写",
   "icons": [
     {
       "src": "favicon.ico",
@@ -20,6 +21,16 @@
   ],
   "start_url": ".",
   "display": "standalone",
-  "theme_color": "#000000",
-  "background_color": "#ffffff"
+  "theme_color": "#1890ff",
+  "background_color": "#ffffff",
+  "categories": ["productivity", "utilities"],
+  "features": [
+    "多模型支持 (O1, GPT, DeepSeek)",
+    "流程设计生成",
+    "大纲生成",
+    "详细内容生成",
+    "动态配置支持"
+  ],
+  "orientation": "any",
+  "prefer_related_applications": false
 }

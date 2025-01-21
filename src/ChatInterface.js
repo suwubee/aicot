@@ -288,6 +288,18 @@ export default function ChatInterface() {
           setSelectedConfig(firstHistory.selectedConfig || null);
         }
       }
+    } else {
+      // 如果没有当前聊天索引，尝试加载已存储的消息
+      const storedMessages = localStorage.getItem('messages');
+      if (storedMessages) {
+        try {
+          const parsedMessages = JSON.parse(storedMessages);
+          setMessages(parsedMessages);
+        } catch (error) {
+          console.error('解析 messages 时发生错误:', error);
+          setMessages([]);
+        }
+      }
     }
 
     // 加载配置项
@@ -303,6 +315,25 @@ export default function ChatInterface() {
     }
   }, []);
 
+  // 统一的消息和聊天历史同步
+  useEffect(() => {
+    if (messages.length > 0) {
+      // 更新本地存储中的消息
+      localStorage.setItem('messages', JSON.stringify(messages));
+      
+      // 如果有当前聊天索引，同步更新聊天历史
+      if (currentChatIndex !== null) {
+        const newHistory = saveChatHistory(messages, mainStructure, currentNodeIndexes, selectedConfig);
+        setChatHistories((prev) => {
+          const updated = [...prev];
+          updated[currentChatIndex] = newHistory;
+          return updated;
+        });
+      }
+    }
+  }, [messages, mainStructure, currentNodeIndexes, selectedConfig, currentChatIndex]);
+
+  // 聊天历史存储
   useEffect(() => {
     if (chatHistories.length > 0 && currentChatIndex !== null) {
       saveChatHistoriesToStorage(chatHistories);
@@ -327,23 +358,6 @@ export default function ChatInterface() {
   useEffect(() => {
     isGeneratingRef.current = isGenerating;
   }, [isGenerating]);
-
-  useEffect(() => {
-    localStorage.setItem('messages', JSON.stringify(messages));
-  }, [messages]);
-
-  useEffect(() => {
-    const storedMessages = localStorage.getItem('messages');
-    if (storedMessages) {
-      try {
-        const parsedMessages = JSON.parse(storedMessages);
-        setMessages(parsedMessages);
-      } catch (error) {
-        console.error('解析 messages 时发生错误:', error);
-        setMessages([]);
-      }
-    }
-  }, []);
 
   const handleSubmit = async (e) => {
     e.preventDefault();
