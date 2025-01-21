@@ -317,6 +317,26 @@ export default function ChatInterface() {
 
   // 统一的消息和聊天历史同步
   useEffect(() => {
+    // 如果消息为空且有当前聊天索引，创建新的空聊天
+    if (messages.length === 0 && currentChatIndex !== null) {
+      const newHistory = saveChatHistory([], null, {
+        node1: 1,
+        node2: 1,
+        node3: 1,
+        node4: 1,
+      }, selectedConfig);
+      
+      setChatHistories((prev) => {
+        const updated = [...prev];
+        updated[currentChatIndex] = newHistory;
+        return updated;
+      });
+      
+      // 清除本地存储的消息
+      localStorage.removeItem('messages');
+      return;
+    }
+
     if (messages.length > 0) {
       // 更新本地存储中的消息
       localStorage.setItem('messages', JSON.stringify(messages));
@@ -338,6 +358,20 @@ export default function ChatInterface() {
     if (chatHistories.length > 0 && currentChatIndex !== null) {
       saveChatHistoriesToStorage(chatHistories);
       saveCurrentChatIndex(currentChatIndex);
+    } else if (chatHistories.length === 0) {
+      // 如果没有聊天历史，清除所有相关存储
+      localStorage.removeItem('chatHistories');
+      localStorage.removeItem('currentChatIndex');
+      localStorage.removeItem('messages');
+      // 重置当前状态
+      setMessages([]);
+      setMainStructure(null);
+      setCurrentNodeIndexes({
+        node1: 1,
+        node2: 1,
+        node3: 1,
+        node4: 1,
+      });
     }
   }, [chatHistories, currentChatIndex]);
 
