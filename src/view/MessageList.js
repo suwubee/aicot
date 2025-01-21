@@ -155,7 +155,7 @@ export default function MessageList({
     );
   };
 
-  const renderMainStructure = (mainStructureData, messageConfig, isLatest) => {
+  const renderMainStructure = (mainStructureData, messageConfig, isLatestMainStructure) => {
     if (!messageConfig) {
       return <p>无法渲染流程设计，缺少配置。</p>;
     }
@@ -167,22 +167,32 @@ export default function MessageList({
 
     const design = mainStructureData[terms.node1];
 
-    const hasCompleteStructure = terms.node2.every(node2Name => {
-      const node2Data = design[node2Name];
-      if (!node2Data) return false;
-      
-      if (terms.node2ComplexItems.includes(node2Name)) {
-        return Array.isArray(node2Data) && node2Data.every(item => 
-          item[terms.title] && Array.isArray(item[terms.content]));
-      }
-      return typeof node2Data === 'string' || 
-             (Array.isArray(node2Data) && node2Data.length > 0);
-    });
+    // 处理动态思维链的情况
+    const isDynamicConfig = messageConfig.isDynamic;
+    const node2Items = isDynamicConfig ? 
+      // 如果是动态思维链，使用设计中的实际顺序
+      Object.keys(design).filter(key => typeof design[key] !== 'string') :
+      // 如果是固定配置，使用预定义的顺序
+      terms.node2;
+
+    const hasCompleteStructure = isDynamicConfig ? 
+      node2Items.length > 0 :
+      terms.node2.every(node2Name => {
+        const node2Data = design[node2Name];
+        if (!node2Data) return false;
+        
+        if (terms.node2ComplexItems.includes(node2Name)) {
+          return Array.isArray(node2Data) && node2Data.every(item => 
+            item[terms.title] && Array.isArray(item[terms.content]));
+        }
+        return typeof node2Data === 'string' || 
+               (Array.isArray(node2Data) && node2Data.length > 0);
+      });
 
     return (
       <div className="mt-4">
         <h3 className="text-xl font-semibold mb-2">{terms.node1}</h3>
-        {terms.node2.map((node2Name, index) => (
+        {node2Items.map((node2Name, index) => (
           <div key={index} className="mb-4">
             <h4 className="text-lg font-semibold mb-1">{node2Name}</h4>
             {Array.isArray(design[node2Name]) ? (
@@ -215,7 +225,7 @@ export default function MessageList({
             )}
           </div>
         ))}
-        {isLatest && hasCompleteStructure && (
+        {isLatestMainStructure && hasCompleteStructure && (
           <div className="mt-4 space-x-2">
             <button className="px-5 py-2 bg-blue-500 text-white rounded hover:bg-blue-600 focus:outline-none">
               最新流程设计
