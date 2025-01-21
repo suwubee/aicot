@@ -1,6 +1,6 @@
 // ChatInterfaceView.js
 
-import React, { useState } from 'react';
+import React, { useState, useEffect, useCallback } from 'react';
 import MessageList from './view/MessageList';
 import ChatSidebar from './view/ChatSidebar';
 import InputArea from './view/InputArea';
@@ -59,8 +59,30 @@ export default function ChatInterfaceView({
   configFileInputRef,
   currentNodeIndexes,
 }) {
-  const [localAdjustInputs, setLocalAdjustInputs] = useState(Array(messages.length).fill(false));
-  const [localErrors, setLocalErrors] = useState(Array(messages.length).fill(''));
+  // 使用 useMemo 优化本地状态，避免不必要的重新创建
+  const [localAdjustInputs, setLocalAdjustInputs] = useState(() => new Array(messages.length).fill(false));
+  const [localErrors, setLocalErrors] = useState(() => new Array(messages.length).fill(''));
+
+  // 监听消息变化，更新本地状态数组长度
+  useEffect(() => {
+    if (messages.length !== localAdjustInputs.length) {
+      setLocalAdjustInputs(new Array(messages.length).fill(false));
+      setLocalErrors(new Array(messages.length).fill(''));
+    }
+  }, [messages.length, localAdjustInputs.length]);
+
+  // 统一的滚动到底部函数
+  const scrollToBottom = useCallback(() => {
+    if (scrollAreaRef.current) {
+      scrollAreaRef.current.scrollTop = scrollAreaRef.current.scrollHeight;
+    }
+  }, [scrollAreaRef]);
+
+  // 监听消息变化自动滚动
+  useEffect(() => {
+    const timer = setTimeout(scrollToBottom, 100);
+    return () => clearTimeout(timer);
+  }, [messages, scrollToBottom]);
 
   const handleDeleteMessage = (index) => {
     const updatedMessages = messages.filter((_, i) => i !== index);

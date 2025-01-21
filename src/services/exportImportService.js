@@ -122,6 +122,55 @@ export const importConfigurations = (jsonString) => {
 };
 
 /**
+ * 从主结构数据中提取实际显示的内容
+ * @param {Object} mainStructureData - 主结构数据
+ * @param {Object} terms - 配置项的术语定义
+ * @returns {Object} 处理后的主结构数据
+ */
+const extractDisplayContent = (mainStructureData, terms) => {
+  // 如果数据为空或没有主节点，直接返回原数据
+  if (!mainStructureData) {
+    return mainStructureData;
+  }
+
+  // 获取主节点名称
+  const mainNodeName = Object.keys(mainStructureData)[0];
+  if (!mainNodeName) {
+    return mainStructureData;
+  }
+
+  // 创建结果对象
+  const result = {};
+  result[mainNodeName] = {};
+  const mainNode = mainStructureData[mainNodeName];
+
+  // 遍历所有二级节点
+  Object.keys(mainNode).forEach(node2Name => {
+    const node2Data = mainNode[node2Name];
+    
+    // 如果是数组类型（复杂项）
+    if (Array.isArray(node2Data)) {
+      result[mainNodeName][node2Name] = node2Data.map(item => {
+        // 使用配置中定义的 title 字段获取标题
+        const title = item[terms.title] || "";
+        // 确保返回必要的字段
+        return {
+          [terms.title]: title,
+          [terms.content]: item[terms.content] || [],
+          [terms.detailFlag]: true,
+          flowDescription: title
+        };
+      });
+    } else {
+      // 如果是字符串类型（简单项）
+      result[mainNodeName][node2Name] = node2Data;
+    }
+  });
+
+  return result;
+};
+
+/**
  * 导出Markdown格式的聊天内容
  * @param {Array} messages - 消息列表
  * @param {Object} selectedConfig - 选中的配置项
@@ -136,57 +185,61 @@ export const exportMarkdown = (messages, selectedConfig) => {
     
     // 如果存在主结构，先添加主结构内容
     if (mainStructureMessage) {
-      const terms = selectedConfig.terms;
       let mainStructureData;
       
       try {
+        // 获取主结构数据
         mainStructureData = mainStructureMessage.data || JSON.parse(mainStructureMessage.content.slice(6));
-      } catch (error) {
-        console.warn('解析主结构数据失败:', error);
-        return;
-      }
-
-      if (mainStructureData && mainStructureData[terms.node1]) {
-        const design = mainStructureData[terms.node1];
         
-        markdownContent += `# ${terms.node1}\n\n`;
+        // 使用 extractDisplayContent 处理数据，确保格式一致性
+        mainStructureData = extractDisplayContent(mainStructureData, selectedConfig.terms);
+        if (!mainStructureData) {
+          throw new Error('无法解析主结构数据');
+        }
+
+        // 获取主节点名称
+        const mainNodeName = Object.keys(mainStructureData)[0];
+        if (!mainNodeName) {
+          throw new Error('无法获取主节点名称');
+        }
+
+        markdownContent += `# ${mainNodeName}\n\n`;
+        const design = mainStructureData[mainNodeName];
         
         // 遍历所有node2项
-        terms.node2.forEach(node2Name => {
+        Object.keys(design).forEach(node2Name => {
           const node2Data = design[node2Name];
           if (!node2Data) return;
           
           markdownContent += `## ${node2Name}\n\n`;
           
-          if (terms.node2ComplexItems.includes(node2Name)) {
-            // 处理复杂项
-            if (Array.isArray(node2Data)) {
-              node2Data.forEach((item, index) => {
-                if (item[terms.title]) {
-                  markdownContent += `### ${item[terms.title]}\n\n`;
-                  if (Array.isArray(item[terms.content])) {
-                    item[terms.content].forEach(subItem => {
-                      markdownContent += `- ${subItem}\n`;
-                    });
-                    markdownContent += '\n';
-                  }
-                }
-              });
-            }
+          // 处理复杂项（数组类型）
+          if (Array.isArray(node2Data)) {
+            node2Data.forEach((item, index) => {
+              // 获取标题
+              const title = item[selectedConfig.terms.title] || '';
+              if (title) {
+                markdownContent += `### ${title}\n\n`;
+              }
+              
+              // 添加内容列表
+              if (Array.isArray(item[selectedConfig.terms.content])) {
+                item[selectedConfig.terms.content].forEach(subItem => {
+                  markdownContent += `- ${subItem}\n`;
+                });
+                markdownContent += '\n';
+              }
+            });
           } else {
-            // 处理简单项
-            if (typeof node2Data === 'string') {
-              markdownContent += `${node2Data}\n\n`;
-            } else if (Array.isArray(node2Data)) {
-              node2Data.forEach(item => {
-                markdownContent += `- ${item}\n`;
-              });
-              markdownContent += '\n';
-            }
+            // 处理简单项（字符串类型）
+            markdownContent += `${node2Data}\n\n`;
           }
         });
         
         markdownContent += '\n---\n\n';
+      } catch (error) {
+        console.warn('解析主结构数据失败:', error);
+        return;
       }
     }
     
@@ -199,7 +252,7 @@ export const exportMarkdown = (messages, selectedConfig) => {
         }
 
         const nodeIndexes = message.data.nodeIndexes;
-        const title = message.data.标题 || message.data.title || 
+        const title = message.data[selectedConfig.terms.title] || 
                      `${nodeIndexes.node2Name} - 第${nodeIndexes.node3}节 - 第${nodeIndexes.node4}部分`;
         markdownContent += `### ${title}\n\n`;
         

@@ -233,21 +233,48 @@ export default function MessageList({
   };
 
   const handleLocalAdjustSubmit = async (message, adjustedContent, index) => {
+    if (!message || !message.type) {
+      setLocalErrors((prev) => {
+        const newErrors = [...prev];
+        newErrors[index] = '无效的消息数据';
+        return newErrors;
+      });
+      return;
+    }
+
+    if (!adjustedContent.trim()) {
+      setLocalErrors((prev) => {
+        const newErrors = [...prev];
+        newErrors[index] = '调整内容不能为空';
+        return newErrors;
+      });
+      return;
+    }
+
     try {
+      const messageConfig = message.selectedConfig || selectedConfig;
+      if (!messageConfig || !messageConfig.terms) {
+        throw new Error('缺少配置信息');
+      }
+
       if (message.type === 'mainStructure') {
         await handleAdjustSubmit(message, adjustedContent);
-      } else if (message.type === selectedConfig.terms.sectionDetailType) {
-        const nodeIndexes = message.data.nodeIndexes;
+      } else if (message.type === messageConfig.terms.sectionDetailType) {
+        const nodeIndexes = message.data?.nodeIndexes;
+        if (!nodeIndexes || !nodeIndexes.node2Name || !nodeIndexes.node3 || !nodeIndexes.node4) {
+          throw new Error('消息数据中缺少必要的节点索引');
+        }
 
-        if (nodeIndexes.node3 === undefined || nodeIndexes.node4 === undefined) {
-          throw new Error('消息数据中缺少节点索引');
+        if (!message.data || !message.data[messageConfig.terms.detail]) {
+          throw new Error('消息数据中缺少详细内容');
         }
 
         await handleAdjustSubmit(message, adjustedContent, nodeIndexes);
       } else {
-        throw new Error('未知的消息类型');
+        throw new Error(`不支持的消息类型: ${message.type}`);
       }
 
+      // 成功后清理状态
       setLocalErrors((prev) => {
         const newErrors = [...prev];
         newErrors[index] = '';
@@ -258,10 +285,12 @@ export default function MessageList({
         newInputs[index] = false;
         return newInputs;
       });
+      setAdjustedContent('');
     } catch (error) {
+      console.error('调整内容失败:', error);
       setLocalErrors((prev) => {
         const newErrors = [...prev];
-        newErrors[index] = error.message;
+        newErrors[index] = error.message || '调整失败，请重试';
         return newErrors;
       });
     }
@@ -324,7 +353,7 @@ export default function MessageList({
                   )}
                   {isDetail && (
                     <span className="ml-2 text-sm text-purple-500">
-                      [{messageConfig.terms.detail}] {messageConfig.terms.node3} {messageContent.nodeIndexes.node3},{' '}
+                      [{messageConfig.terms.detail}] {messageContent.nodeIndexes.node3},{' '}
                       {messageConfig.terms.node4} {messageContent.nodeIndexes.node4}
                     </span>
                   )}
