@@ -32,6 +32,11 @@ export default function MessageList({
       return null;
     }
 
+    const generateDetailId = (nodeIndexes) => {
+      if (!nodeIndexes) return '';
+      return `detail-${nodeIndexes.node2Name}-${nodeIndexes.node3}-${nodeIndexes.node4}`;
+    };
+
     const isLegacyFormat = !detailData.nodeIndexes || (!detailData.nodeIndexes.isSimpleNode && !detailData.nodeIndexes.node3);
 
     if (isLegacyFormat) {
@@ -139,7 +144,7 @@ export default function MessageList({
     const detailContent = detailData[terms.detail];
 
     return (
-      <div id={`detail-${nodeIndexes.node3}-${nodeIndexes.node4}`} className="mt-4">
+      <div id={generateDetailId(nodeIndexes)} className="mt-4">
         <h3 className="text-xl font-bold mb-2">
           {node2Name}:第{nodeIndexes.node3}个{terms.node3}: {node3Title}
         </h3>
@@ -196,32 +201,59 @@ export default function MessageList({
       if (Array.isArray(content)) {
         return (
           <ul className="list-disc ml-6">
-            {content.map((item, itemIndex) => (
-              <li key={itemIndex}>
-                {typeof item === 'string' ? (
-                  item
-                ) : (
-                  <>
-                    <span className="font-semibold">{item[terms.title]}</span>
-                    {item[terms.content] && Array.isArray(item[terms.content]) && (
-                      <ul className="list-disc ml-8">
-                        {item[terms.content].map((subItem, subIndex) => (
+            {content.map((item, itemIndex) => {
+              // 处理固定配置的情况
+              if (typeof item === 'string') {
+                // 检查是否是复杂节点
+                const isComplexItem = terms.node2ComplexItems.includes(node2Name);
+                if (isComplexItem) {
+                  const detailId = `detail-${node2Name}-1-${itemIndex + 1}`;
+                  return (
+                    <li key={itemIndex}>
+                      <a href={`#${detailId}`} className="text-blue-500 hover:underline">
+                        {item}
+                      </a>
+                    </li>
+                  );
+                }
+                return <li key={itemIndex}>{item}</li>;
+              }
+
+              // 处理动态配置的情况
+              return (
+                <li key={itemIndex}>
+                  <span className="font-semibold">{item[terms.title]}</span>
+                  {item[terms.content] && Array.isArray(item[terms.content]) && (
+                    <ul className="list-disc ml-8">
+                      {item[terms.content].map((subItem, subIndex) => {
+                        const hasDetail = item[terms.detailFlag] || 
+                                        item['详细内容'] || 
+                                        item.detail ||
+                                        terms.node2ComplexItems.includes(node2Name);
+                        const detailId = hasDetail ? 
+                          `detail-${node2Name}-${itemIndex + 1}-${subIndex + 1}` : 
+                          '';
+                        
+                        return (
                           <li key={subIndex}>
-                            {item[terms.detailFlag] || item['详细内容'] ? (
-                              <a href={`#detail-${itemIndex + 1}-${subIndex + 1}`} className="text-blue-500 hover:underline">
+                            {hasDetail ? (
+                              <a 
+                                href={`#${detailId}`} 
+                                className="text-blue-500 hover:underline"
+                              >
                                 {subItem}
                               </a>
                             ) : (
                               subItem
                             )}
                           </li>
-                        ))}
-                      </ul>
-                    )}
-                  </>
-                )}
-              </li>
-            ))}
+                        );
+                      })}
+                    </ul>
+                  )}
+                </li>
+              );
+            })}
           </ul>
         );
       } else if (typeof content === 'object' && content !== null) {

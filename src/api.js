@@ -586,6 +586,12 @@ export async function adjustMainStructure(apiUrl, apiKey, model, currentDesign, 
   }
 }
 
+function generateDetailId(nodeIndexes) {
+  if (!nodeIndexes) return '';
+  const { node2Name, node3, node4 } = nodeIndexes;
+  return `detail-${node2Name}-${node3}-${node4}`;
+}
+
 // 新建详细内容
 export async function generateNewDetail(apiUrl, apiKey, model, nodeIndexes, mainStructure, messages, config) {
   const { prompts, functionCalls, systemRolePrompt } = buildConfigFunctions(config);
@@ -619,7 +625,8 @@ export async function generateNewDetail(apiUrl, apiKey, model, nodeIndexes, main
           ...result.functionResult,
           [terms.title]: node2Name,
           nodeIndexes: nodeIndexes,
-          type: 'detail'
+          type: 'detail',
+          detailId: generateDetailId(nodeIndexes)
         }
       };
     } else {
@@ -631,7 +638,8 @@ export async function generateNewDetail(apiUrl, apiKey, model, nodeIndexes, main
           ...functionResult,
           [terms.title]: node2Name,
           nodeIndexes: nodeIndexes,
-          type: 'detail'
+          type: 'detail',
+          detailId: generateDetailId(nodeIndexes)
         }
       };
     }
@@ -704,7 +712,8 @@ ${existingSections.join('\n\n')}
         ...result.functionResult,
         [terms.title]: node3Data[terms.title],
         nodeIndexes: nodeIndexes,
-        type: 'detail'
+        type: 'detail',
+        detailId: generateDetailId(nodeIndexes)
       }
     };
   } else {
@@ -716,7 +725,8 @@ ${existingSections.join('\n\n')}
         ...functionResult,
         [terms.title]: node3Data[terms.title],
         nodeIndexes: nodeIndexes,
-        type: 'detail'
+        type: 'detail',
+        detailId: generateDetailId(nodeIndexes)
       }
     };
   }
@@ -804,7 +814,8 @@ ${existingSections.join('\n\n')}
         ...result.functionResult,
         [terms.title]: node3Data[terms.title],
         nodeIndexes: nodeIndexes,
-        type: 'detail'
+        type: 'detail',
+        detailId: generateDetailId(nodeIndexes)
       }
     };
   } else {
@@ -817,7 +828,8 @@ ${existingSections.join('\n\n')}
         ...functionResult,
         [terms.title]: node3Data[terms.title],
         nodeIndexes: nodeIndexes,
-        type: 'detail'
+        type: 'detail',
+        detailId: generateDetailId(nodeIndexes)
       }
     };
   }
