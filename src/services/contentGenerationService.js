@@ -456,50 +456,63 @@ const transformMainStructure = (mainStructure, config) => {
   const node2ComplexItems = config.terms.node2ComplexItems || [];
   const { title, content, detail } = config.terms;
 
-  // 保存节点顺序
-  const nodeOrder = Object.keys(originalData);
-
-  // 遍历所有 node2 项，保持原始顺序
-  for (const node2Key of nodeOrder) {
-    const node2Data = originalData[node2Key];
-    
-    // 检查是否是复杂项
-    if (node2ComplexItems.includes(node2Key)) {
-      // 如果是复杂项，确保它是数组，并且每个元素都有正确的结构
-      if (Array.isArray(node2Data)) {
-        transformedData[node2Key] = node2Data.map(item => ({
-          [title]: item[title] || '',
-          [content]: item[content] || [],
-          [detail]: true
-        }));
-      } else {
-        transformedData[node2Key] = [{
-          [title]: node2Data[title] || '',
-          [content]: node2Data[content] || [],
-          [detail]: true
-        }];
-      }
-    } else {
-      // 如果不是复杂项，确保它是字符串
-      if (typeof node2Data === 'string') {
-        transformedData[node2Key] = node2Data;
-      } else if (Array.isArray(node2Data)) {
-        // 如果是数组，取第一个元素的描述
-        transformedData[node2Key] = node2Data[0]?.[title] || 
-                                   node2Data[0]?.[content]?.[0] || 
-                                   '暂无描述';
-      } else {
-        // 其他情况，尝试从对象中获取描述
-        transformedData[node2Key] = node2Data[title] || 
-                                   String(node2Data);
-      }
+  // 获取或创建节点顺序，同时保持向后兼容性
+  let nodeOrder;
+  if (mainStructure.nodeOrder) {
+    // 如果已经有节点顺序，验证其有效性
+    nodeOrder = mainStructure.nodeOrder.filter(key => originalData[key]);
+    // 如果有新增节点，将其添加到顺序末尾
+    const missingKeys = Object.keys(originalData).filter(key => !nodeOrder.includes(key));
+    nodeOrder = [...nodeOrder, ...missingKeys];
+  } else {
+    // 创建新的节点顺序，确保复杂节点在前面
+    try {
+      const complexItems = Object.keys(originalData).filter(key => 
+        node2ComplexItems?.includes?.(key) || false);
+      const simpleItems = Object.keys(originalData).filter(key => 
+        !(node2ComplexItems?.includes?.(key) || false));
+      nodeOrder = [...complexItems, ...simpleItems];
+    } catch (error) {
+      // 如果出现错误，回退到简单的键排序
+      console.warn('节点排序出现错误，使用默认排序', error);
+      nodeOrder = Object.keys(originalData);
     }
   }
 
-  // 创建新的主结构对象，包含节点顺序
+  // 按照节点顺序转换数据，添加错误处理
+  for (const node2Key of nodeOrder) {
+    try {
+      if (!originalData[node2Key]) continue;
+      
+      const node2Data = originalData[node2Key];
+      if (node2ComplexItems?.includes?.(node2Key)) {
+        transformedData[node2Key] = Array.isArray(node2Data) ? 
+          node2Data.map(item => ({
+            [title]: item[title] || '',
+            [content]: Array.isArray(item[content]) ? item[content] : [],
+            [detail]: true
+          })) : 
+          [{
+            [title]: node2Data[title] || '',
+            [content]: Array.isArray(node2Data[content]) ? node2Data[content] : [],
+            [detail]: true
+          }];
+      } else {
+        transformedData[node2Key] = typeof node2Data === 'string' ? 
+          node2Data : 
+          (node2Data[title] || String(node2Data));
+      }
+    } catch (error) {
+      console.error(`处理节点 ${node2Key} 时出错:`, error);
+      // 保持原始数据以避免数据丢失
+      transformedData[node2Key] = originalData[node2Key];
+    }
+  }
+
   return {
     [config.terms.node1]: transformedData,
-    nodeOrder: nodeOrder
+    nodeOrder: nodeOrder,
+    version: '2.0'
   };
 };
 
