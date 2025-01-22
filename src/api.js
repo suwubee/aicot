@@ -221,7 +221,9 @@ const ModelConfigManager = {
 };
 
 export async function callAIAPI(apiUrl, apiKey, model, messages, functions, function_call) {
-  const body = JSON.stringify(ModelConfigManager.buildRequestBody(model, messages, functions, function_call));
+  const requestBody = ModelConfigManager.buildRequestBody(model, messages, functions, function_call);
+  // 压缩整个请求体的 JSON 字符串
+  const body = JSON.stringify(requestBody).replace(/\s+/g, ' ').trim();
 
   const response = await fetch(apiUrl, {
     method: 'POST',
@@ -311,7 +313,7 @@ export async function generateNewMainStructure(apiUrl, apiKey, model, userConten
   const { prompts, functionCalls, systemRolePrompt } = buildConfigFunctions(config);
   const prompt = prompts.generateMainStructurePrompt(userContent);
   const messages = buildMessages(model, systemRolePrompt, prompt, functionCalls.mainStructureFunction.parameters);
-
+  
   if (model.startsWith('o1-') || model.startsWith('deepseek-')) {
     // O1 和 DeepSeek 模型不使用 functions 参数
     const result = await callAIAPI(apiUrl, apiKey, model, messages);
@@ -366,7 +368,7 @@ function buildConfigFunctions(config) {
     adjustMainStructurePrompt: (currentDesign, adjustments) =>
       `根据之前的${terms.node1}内容:
 \`\`\`json
-${JSON.stringify(currentDesign, null, 2).replace(/\s+/g, ' ').replace(/\n/g, ' ')}
+${JSON.stringify(currentDesign, null, 2).replace(/\s+/g, ' ').trim()}
 \`\`\`
 调整意见:
 ${adjustments}
@@ -380,7 +382,7 @@ ${adjustments}
       subNodeTitle
     ) => `
 ${terms.node1}背景:
-${JSON.stringify(currentDesign, null, 2).replace(/\s+/g, ' ').replace(/\n/g, ' ')} 
+${JSON.stringify(currentDesign, null, 2).replace(/\s+/g, ' ').trim()} 
 
 # 已有内容参考
 ${existingSectionsPrompt}
@@ -584,6 +586,12 @@ export async function adjustMainStructure(apiUrl, apiKey, model, currentDesign, 
   }
 }
 
+function generateDetailId(nodeIndexes) {
+  if (!nodeIndexes) return '';
+  const { node2Name, node3, node4 } = nodeIndexes;
+  return `detail-${node2Name}-${node3}-${node4}`;
+}
+
 // 新建详细内容
 export async function generateNewDetail(apiUrl, apiKey, model, nodeIndexes, mainStructure, messages, config) {
   const { prompts, functionCalls, systemRolePrompt } = buildConfigFunctions(config);
@@ -617,7 +625,8 @@ export async function generateNewDetail(apiUrl, apiKey, model, nodeIndexes, main
           ...result.functionResult,
           [terms.title]: node2Name,
           nodeIndexes: nodeIndexes,
-          type: 'detail'
+          type: 'detail',
+          detailId: generateDetailId(nodeIndexes)
         }
       };
     } else {
@@ -629,7 +638,8 @@ export async function generateNewDetail(apiUrl, apiKey, model, nodeIndexes, main
           ...functionResult,
           [terms.title]: node2Name,
           nodeIndexes: nodeIndexes,
-          type: 'detail'
+          type: 'detail',
+          detailId: generateDetailId(nodeIndexes)
         }
       };
     }
@@ -702,7 +712,8 @@ ${existingSections.join('\n\n')}
         ...result.functionResult,
         [terms.title]: node3Data[terms.title],
         nodeIndexes: nodeIndexes,
-        type: 'detail'
+        type: 'detail',
+        detailId: generateDetailId(nodeIndexes)
       }
     };
   } else {
@@ -714,7 +725,8 @@ ${existingSections.join('\n\n')}
         ...functionResult,
         [terms.title]: node3Data[terms.title],
         nodeIndexes: nodeIndexes,
-        type: 'detail'
+        type: 'detail',
+        detailId: generateDetailId(nodeIndexes)
       }
     };
   }
@@ -802,7 +814,8 @@ ${existingSections.join('\n\n')}
         ...result.functionResult,
         [terms.title]: node3Data[terms.title],
         nodeIndexes: nodeIndexes,
-        type: 'detail'
+        type: 'detail',
+        detailId: generateDetailId(nodeIndexes)
       }
     };
   } else {
@@ -815,7 +828,8 @@ ${existingSections.join('\n\n')}
         ...functionResult,
         [terms.title]: node3Data[terms.title],
         nodeIndexes: nodeIndexes,
-        type: 'detail'
+        type: 'detail',
+        detailId: generateDetailId(nodeIndexes)
       }
     };
   }

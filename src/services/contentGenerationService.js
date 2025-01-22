@@ -456,8 +456,11 @@ const transformMainStructure = (mainStructure, config) => {
   const node2ComplexItems = config.terms.node2ComplexItems || [];
   const { title, content, detail } = config.terms;
 
-  // 遍历所有 node2 项
-  for (const node2Key of Object.keys(originalData)) {
+  // 保存节点顺序
+  const nodeOrder = Object.keys(originalData);
+
+  // 遍历所有 node2 项，保持原始顺序
+  for (const node2Key of nodeOrder) {
     const node2Data = originalData[node2Key];
     
     // 检查是否是复杂项
@@ -493,9 +496,10 @@ const transformMainStructure = (mainStructure, config) => {
     }
   }
 
-  // 创建新的主结构对象
+  // 创建新的主结构对象，包含节点顺序
   return {
-    [config.terms.node1]: transformedData
+    [config.terms.node1]: transformedData,
+    nodeOrder: nodeOrder
   };
 };
 
