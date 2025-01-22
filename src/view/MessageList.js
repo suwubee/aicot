@@ -229,10 +229,10 @@ export default function MessageList({
         return (
           <div className="ml-6">
             {Object.entries(content).map(([key, value], index) => (
-              <div key={index}>
+                <div key={index}>
                 <h5 className="font-medium">{key}</h5>
-                {renderNode2Content(key, value)}
-              </div>
+                  {renderNode2Content(key, value)}
+                </div>
             ))}
           </div>
         );

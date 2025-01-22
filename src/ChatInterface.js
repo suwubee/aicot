@@ -159,18 +159,20 @@ export default function ChatInterface() {
   const isGeneratingRef = useRef(isGenerating);
   const [isFinished, setIsFinished] = useState(false);
   const [currentNodeIndexes, setCurrentNodeIndexes] = useState(INITIAL_NODE_INDEXES);
-  const [currentChatIndex, setCurrentChatIndex] = useState(0);
+  const [currentChatIndex, setCurrentChatIndex] = useState(() => {
+    const storedIndex = localStorage.getItem('currentChatIndex');
+    return storedIndex !== null ? parseInt(storedIndex, 10) : 0;
+  });
   const [chatHistories, setChatHistories] = useState(() => {
     const storedChatHistories = localStorage.getItem('chatHistories');
-    return storedChatHistories
-      ? JSON.parse(storedChatHistories)
-      : [
-          {
-            title: '未命名',
-            messages: [],
-            mainStructure: null,
-          },
-        ];
+    const histories = storedChatHistories ? JSON.parse(storedChatHistories) : [];
+    return histories.length > 0 ? histories : [{
+      title: '未命名',
+      messages: [],
+      mainStructure: null,
+      currentNodeIndexes: INITIAL_NODE_INDEXES,
+      selectedConfig: null
+    }];
   });
   const [isAdjusting, setIsAdjusting] = useState(false);
   const [searchKeyword, setSearchKeyword] = useState('');
@@ -265,44 +267,27 @@ export default function ChatInterface() {
       setApiKey(storedApiKey);
     }
 
-    // 从 localStorage 加载聊天记录
+    // 从 localStorage 加载聊天记录和当前索引
     const histories = loadChatHistories();
-    setChatHistories(histories);
-
-    // 恢复当前聊天索引
     const storedCurrentChatIndex = localStorage.getItem('currentChatIndex');
-    if (storedCurrentChatIndex !== null) {
-      const index = parseInt(storedCurrentChatIndex, 10);
-      if (index >= 0 && index < histories.length) {
-        setCurrentChatIndex(index);
+    const index = storedCurrentChatIndex !== null ? parseInt(storedCurrentChatIndex, 10) : 0;
 
-        // 恢复当前聊天的状态
-        const currentHistory = histories[index];
-        if (currentHistory) {
-          setMessages(currentHistory.messages || []);
-          setMainStructure(currentHistory.mainStructure || null);
-          setCurrentNodeIndexes(currentHistory.currentNodeIndexes || {
-            node1: 1,
-            node2: 1,
-            node3: 1,
-            node4: 1,
-          });
-          setSelectedConfig(currentHistory.selectedConfig || null);
-        }
-      } else {
-        // 如果索引无效，重置为 0
-        setCurrentChatIndex(0);
-        if (histories.length > 0) {
-          const firstHistory = histories[0];
-          setMessages(firstHistory.messages || []);
-          setMainStructure(firstHistory.mainStructure || null);
-          setCurrentNodeIndexes(firstHistory.currentNodeIndexes || {
-            node1: 1,
-            node2: 1,
-            node3: 1,
-            node4: 1,
-          });
-          setSelectedConfig(firstHistory.selectedConfig || null);
+    // 验证索引的有效性
+    const validIndex = index >= 0 && index < histories.length ? index : 0;
+
+    // 设置聊天历史
+    setChatHistories(histories);
+    setCurrentChatIndex(validIndex);
+
+    // 加载当前聊天的状态
+    if (histories.length > 0 && validIndex < histories.length) {
+      const currentHistory = histories[validIndex];
+      if (currentHistory) {
+        setMessages(currentHistory.messages || []);
+        setMainStructure(currentHistory.mainStructure || null);
+        setCurrentNodeIndexes(currentHistory.currentNodeIndexes || INITIAL_NODE_INDEXES);
+        if (currentHistory.selectedConfig) {
+          setSelectedConfig(currentHistory.selectedConfig);
         }
       }
     }
@@ -311,7 +296,9 @@ export default function ChatInterface() {
     const configs = loadConfigurations(defaultConfig);
     setConfigurations(configs);
     const selected = loadSelectedConfig(configs);
-    setSelectedConfig(selected);
+    if (selected) {
+      setSelectedConfig(selected);
+    }
 
     // 加载 API URL
     const storedApiUrl = localStorage.getItem('apiUrl');
@@ -319,55 +306,23 @@ export default function ChatInterface() {
       setApiUrl(storedApiUrl);
     }
 
-    // 清除独立存储的消息，避免与聊天历史冲突
+    // 清除独立存储的消息
     localStorage.removeItem('messages');
   }, []);
 
-  // 统一的消息和聊天历史同步
+  // 添加一个新的 useEffect 来处理聊天历史的持久化
   useEffect(() => {
-    if (currentChatIndex === null) return;
-
-    if (messages.length === 0) {
-      // 如果消息为空，创建新的空聊天
-      const newHistory = saveChatHistory([], null, {
-        node1: 1,
-        node2: 1,
-        node3: 1,
-        node4: 1,
-      }, selectedConfig);
-      
-      setChatHistories((prev) => {
-        const updated = [...prev];
-        updated[currentChatIndex] = newHistory;
-        return updated;
-      });
-    } else {
-      // 更新当前聊天历史
-      const newHistory = saveChatHistory(messages, mainStructure, currentNodeIndexes, selectedConfig);
-      setChatHistories((prev) => {
-        const updated = [...prev];
-        updated[currentChatIndex] = newHistory;
-        return updated;
-      });
-    }
-  }, [messages, mainStructure, currentNodeIndexes, selectedConfig, currentChatIndex]);
-
-  // 聊天历史存储
-  useEffect(() => {
-    if (chatHistories.length > 0 && currentChatIndex !== null) {
+    if (chatHistories.length > 0) {
       saveChatHistoriesToStorage(chatHistories);
-      saveCurrentChatIndex(currentChatIndex);
-    } else if (chatHistories.length === 0) {
-      // 如果没有聊天历史，清除所有相关存储
-      localStorage.removeItem('chatHistories');
-      localStorage.removeItem('currentChatIndex');
-      localStorage.removeItem('messages');
-      // 重置当前状态
-      setMessages([]);
-      setMainStructure(null);
-      setCurrentNodeIndexes(INITIAL_NODE_INDEXES);
     }
-  }, [chatHistories, currentChatIndex]);
+  }, [chatHistories]);
+
+  // 添加一个新的 useEffect 来处理当前聊天索引的持久化
+  useEffect(() => {
+    if (currentChatIndex !== null) {
+      saveCurrentChatIndex(currentChatIndex);
+    }
+  }, [currentChatIndex]);
 
   useEffect(() => {
     const latestMessage = messages[messages.length - 1];
@@ -695,31 +650,38 @@ export default function ChatInterface() {
   const startNewChat = () => {
     // 保存当前聊天的状态
     if (messages.length > 0) {
-      const newHistory = saveChatHistory(messages, mainStructure, currentNodeIndexes, selectedConfig);
-      setChatHistories((prev) => {
+      const currentHistory = saveChatHistory(messages, mainStructure, currentNodeIndexes, selectedConfig);
+      setChatHistories(prev => {
         const updated = [...prev];
-        updated[currentChatIndex] = newHistory;
+        if (currentChatIndex !== null && currentChatIndex < updated.length) {
+          updated[currentChatIndex] = currentHistory;
+        }
         return updated;
       });
     }
 
-    // 创建新的聊天
+    // 创建新聊天
     const newChat = createNewChat(selectedConfig);
-    setChatHistories((prev) => [...prev, newChat]);
     
-    // 重置所有状态
+    // 使用函数式更新确保状态同步
+    setChatHistories(prev => {
+      const newHistories = [...prev, newChat];
+      // 在这里直接更新本地存储
+      saveChatHistoriesToStorage(newHistories);
+      return newHistories;
+    });
+
+    const newIndex = chatHistories.length;
+    setCurrentChatIndex(newIndex);
+    saveCurrentChatIndex(newIndex);
+
+    // 重置状态
     setMessages([]);
     setMainStructure(null);
     setCurrentNodeIndexes(INITIAL_NODE_INDEXES);
-    setIsGenerating(false);
     setIsFinished(false);
-    setIsAdjusting(false);
-    setError('');
-    setAdjustedContent('');
+    setIsGenerating(false);
     setInput('');
-    
-    // 设置新聊天为当前聊天
-    setCurrentChatIndex(chatHistories.length);
   };
 
   const handleChatClick = (index) => {
