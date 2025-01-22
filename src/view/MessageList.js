@@ -177,9 +177,9 @@ export default function MessageList({
     
     // 改进节点获取逻辑
     const node2Items = isDynamicConfig ? 
-      // 如果是动态思维链，保持原始顺序并包含所有类型的内容
-      Object.keys(design) :
-      // 如果是固定配置，使用预定义的顺序
+    // 优先使用保存的节点顺序，如果没有则使用当前设计的键顺序
+    (mainStructureData.nodeOrder || Object.keys(design)).filter(key => design[key]) :
+    // 如果是固定配置，使用预定义的顺序
       terms.node2;
 
     const hasCompleteStructure = isDynamicConfig ? 
